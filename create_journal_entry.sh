@@ -80,14 +80,27 @@ if [[ ! -f "$TEMPLATE_FILE" ]]; then
 fi
 
 # Get current date components
-CURRENT_DATE=$(date +"%Y-%m-%d")
+CURRENT_DATE=$(date +"%Y-%m-%d, %H:%M:%S")
 CURRENT_YEAR=$(date +"%Y")
 CURRENT_MONTH=$(date +"%m")
 CURRENT_DAY=$(date +"%d")
 
+# Calculate days since October 21, 2022
+START_DATE="2022-10-21"
+if [[ "$(uname)" == "Darwin" ]]; then
+  # macOS version
+  CURRENT_SECONDS=$(date -j -f "%Y-%m-%d" "$(date +%Y-%m-%d)" +%s)
+  START_SECONDS=$(date -j -f "%Y-%m-%d" "$START_DATE" +%s)
+else
+  # Linux version
+  CURRENT_SECONDS=$(date -d "$(date +%Y-%m-%d)" +%s)
+  START_SECONDS=$(date -d "$START_DATE" +%s)
+fi
+DAY_COUNT=$(((CURRENT_SECONDS - START_SECONDS) / 86400 - 2))
+
 # Calculate previous month for monthly revision using date command
 PREV_MONTH_DATE=$(date -d "$CURRENT_YEAR-$CURRENT_MONTH-01 -1 month" "+%Y.%m" 2>/dev/null ||
-                 date -v-1m -j -f "%Y-%m-%d" "$CURRENT_YEAR-$CURRENT_MONTH-01" "+%Y.%m" 2>/dev/null)
+  date -v-1m -j -f "%Y-%m-%d" "$CURRENT_YEAR-$CURRENT_MONTH-01" "+%Y.%m" 2>/dev/null)
 PREV_YEAR=$((CURRENT_YEAR - 1))
 
 # Define output filename if not specified
@@ -117,22 +130,21 @@ echo "Creating journal entry: $OUTPUT_FILE"
 
 # Replace template variables
 sed -e "s/{{ CURRENT_YEAR }}/$CURRENT_YEAR/g" \
-    -e "s/{{ CURRENT_MONTH }}/$CURRENT_MONTH/g" \
-    -e "s/{{ CURRENT_DAY }}/$CURRENT_DAY/g" \
-    -e "s/{{ CURRENT_DATE }}/$CURRENT_DATE/g" \
-    "$TEMPLATE_FILE" > "$OUTPUT_FILE"
+  -e "s/{{ CURRENT_MONTH }}/$CURRENT_MONTH/g" \
+  -e "s/{{ CURRENT_DAY }}/$CURRENT_DAY/g" \
+  -e "s/{{ CURRENT_DATE }}/$CURRENT_DATE/g" \
+  -e "s/{{ DAY_COUNT }}/$DAY_COUNT/g" \
+  "$TEMPLATE_FILE" >"$OUTPUT_FILE"
 
 # Update monthly and yearly revision links with previous dates
 CURRENT_TIMESTAMP=$(date +%s%3N)
 HUMAN_TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
 
 sed "${SED_IN_PLACE[@]}" \
-    -e "/### Monthly:/,/### Yearly:/ s/$CURRENT_YEAR\.$CURRENT_MONTH/$PREV_MONTH_DATE/g" \
-    -e "/### Yearly:/,/##/ s/$CURRENT_YEAR/$PREV_YEAR/g" \
-    -e "s/updated: [0-9]*/updated: $CURRENT_TIMESTAMP/g" \
-    -e "s/created: [0-9]*/created: $CURRENT_TIMESTAMP/g" \
-    -e "s|<!-- TIMESTAMP -->|$HUMAN_TIMESTAMP|g" \
-    "$OUTPUT_FILE"
+  -e "/### Monthly:/,/### Yearly:/ s/$CURRENT_YEAR\.$CURRENT_MONTH/$PREV_MONTH_DATE/g" \
+  -e "/### Yearly:/,/##/ s/$CURRENT_YEAR/$PREV_YEAR/g" \
+  -e "s|<!-- TIMESTAMP -->|$HUMAN_TIMESTAMP|g" \
+  "$OUTPUT_FILE"
 
 echo "Journal entry created successfully!"
 

@@ -1,9 +1,9 @@
 ---
 id: a1t3cohshkzdp7p26rctkwc
-title: 'Daily'
+title: 'Day {{ DAY_COUNT }} -'
 desc: ''
-updated: 1740954021979
-created: 1670115876842
+updated: {{ CURRENT_DATE }}
+created: {{ CURRENT_DATE }}
 ---
 
 ## Feelings
