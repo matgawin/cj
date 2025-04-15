@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# create_journal_entry.sh
-# Script to create a daily journal entry from a template
-
 # Exit immediately if a command exits with a non-zero status
 set -e
 
@@ -16,6 +13,8 @@ usage() {
   echo "  -o, --output FILE      Output file (default: journal.daily.YYYY.MM.DD.md)"
   echo "  -e, --edit             Open the journal entry in editor after creation"
   echo "  -E, --editor EDITOR    Specify editor to use (default: $EDITOR)"
+  echo "  -d, --directory DIR    Directory to save the journal entry (default: current directory)"
+  echo "  -f, --force            Force overwrite without confirmation"
   echo "  -h, --help             Display this help message and exit"
   echo
 }
@@ -25,6 +24,15 @@ TEMPLATE_FILE="journal.template.daily.md"
 EDITOR="${EDITOR:-vi}"
 OPEN_EDITOR=false
 OUTPUT_FILE=""
+OUTPUT_DIR="."
+FORCE=false
+
+# Determine sed in-place edit command (for macOS compatibility)
+if [[ "$(uname)" == "Darwin" ]]; then
+  SED_IN_PLACE=(-i "")
+else
+  SED_IN_PLACE=(-i)
+fi
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -44,6 +52,13 @@ while [[ "$#" -gt 0 ]]; do
     EDITOR="$2"
     OPEN_EDITOR=true
     shift
+    ;;
+  -d | --directory)
+    OUTPUT_DIR="$2"
+    shift
+    ;;
+  -f | --force)
+    FORCE=true
     ;;
   -h | --help)
     usage
@@ -65,20 +80,14 @@ if [[ ! -f "$TEMPLATE_FILE" ]]; then
 fi
 
 # Get current date components
+CURRENT_DATE=$(date +"%Y-%m-%d")
 CURRENT_YEAR=$(date +"%Y")
 CURRENT_MONTH=$(date +"%m")
 CURRENT_DAY=$(date +"%d")
 
-# Calculate previous month for monthly revision
-if [[ "$CURRENT_MONTH" == "01" ]]; then
-  PREV_MONTH_YEAR=$((CURRENT_YEAR - 1))
-  PREV_MONTH="12"
-else
-  PREV_MONTH_YEAR=$CURRENT_YEAR
-  PREV_MONTH=$(printf "%02d" $((10#$CURRENT_MONTH - 1)))
-fi
-
-# Previous year for yearly revision
+# Calculate previous month for monthly revision using date command
+PREV_MONTH_DATE=$(date -d "$CURRENT_YEAR-$CURRENT_MONTH-01 -1 month" "+%Y.%m" 2>/dev/null ||
+                 date -v-1m -j -f "%Y-%m-%d" "$CURRENT_YEAR-$CURRENT_MONTH-01" "+%Y.%m" 2>/dev/null)
 PREV_YEAR=$((CURRENT_YEAR - 1))
 
 # Define output filename if not specified
@@ -86,14 +95,21 @@ if [[ -z "$OUTPUT_FILE" ]]; then
   OUTPUT_FILE="journal.daily.${CURRENT_YEAR}.${CURRENT_MONTH}.${CURRENT_DAY}.md"
 fi
 
+# Ensure output directory exists
+mkdir -p "$OUTPUT_DIR"
+OUTPUT_FILE="$OUTPUT_DIR/$OUTPUT_FILE"
+
 # Check if file already exists
-if [[ -f "$OUTPUT_FILE" ]]; then
+if [[ -f "$OUTPUT_FILE" && "$FORCE" == "false" ]]; then
   echo "Warning: Journal entry already exists: $OUTPUT_FILE"
   read -p "Do you want to overwrite it? (y/N): " CONFIRM
   if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
     echo "Operation cancelled"
     exit 0
   fi
+  # Create backup of existing file
+  cp "$OUTPUT_FILE" "${OUTPUT_FILE}.bak"
+  echo "Backup created: ${OUTPUT_FILE}.bak"
 fi
 
 # Create journal entry from template
@@ -101,27 +117,34 @@ echo "Creating journal entry: $OUTPUT_FILE"
 
 # Replace template variables
 sed -e "s/{{ CURRENT_YEAR }}/$CURRENT_YEAR/g" \
-  -e "s/{{ CURRENT_MONTH }}/$CURRENT_MONTH/g" \
-  -e "s/{{ CURRENT_DAY }}/$CURRENT_DAY/g" \
-  "$TEMPLATE_FILE" >"$OUTPUT_FILE"
+    -e "s/{{ CURRENT_MONTH }}/$CURRENT_MONTH/g" \
+    -e "s/{{ CURRENT_DAY }}/$CURRENT_DAY/g" \
+    -e "s/{{ CURRENT_DATE }}/$CURRENT_DATE/g" \
+    "$TEMPLATE_FILE" > "$OUTPUT_FILE"
 
 # Update monthly and yearly revision links with previous dates
-sed -i -e "/### Monthly:/,/### Yearly:/ s/$CURRENT_YEAR\.$CURRENT_MONTH/$PREV_MONTH_YEAR\.$PREV_MONTH/g" \
-  -e "/### Yearly:/,/##/ s/$CURRENT_YEAR/$PREV_YEAR/g" \
-  "$OUTPUT_FILE"
-
-# Set current timestamp in the file
 CURRENT_TIMESTAMP=$(date +%s%3N)
-sed -i "s/updated: [0-9]*/updated: $CURRENT_TIMESTAMP/" "$OUTPUT_FILE"
-sed -i "s/created: [0-9]*/created: $CURRENT_TIMESTAMP/" "$OUTPUT_FILE"
+HUMAN_TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
+
+sed "${SED_IN_PLACE[@]}" \
+    -e "/### Monthly:/,/### Yearly:/ s/$CURRENT_YEAR\.$CURRENT_MONTH/$PREV_MONTH_DATE/g" \
+    -e "/### Yearly:/,/##/ s/$CURRENT_YEAR/$PREV_YEAR/g" \
+    -e "s/updated: [0-9]*/updated: $CURRENT_TIMESTAMP/g" \
+    -e "s/created: [0-9]*/created: $CURRENT_TIMESTAMP/g" \
+    -e "s|<!-- TIMESTAMP -->|$HUMAN_TIMESTAMP|g" \
+    "$OUTPUT_FILE"
 
 echo "Journal entry created successfully!"
 
 # Open editor if requested
 if [[ "$OPEN_EDITOR" = true ]]; then
-  echo "Opening journal entry in $EDITOR..."
-  "$EDITOR" "$OUTPUT_FILE"
+  if command -v "$EDITOR" >/dev/null 2>&1; then
+    echo "Opening journal entry in $EDITOR..."
+    "$EDITOR" "$OUTPUT_FILE"
+  else
+    echo "Error: Editor '$EDITOR' not found, cannot open journal entry"
+    exit 1
+  fi
 fi
 
 exit 0
-
