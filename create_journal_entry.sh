@@ -13,6 +13,7 @@ usage() {
   echo
   echo "Options:"
   echo "  -t, --template FILE    Template file (default: journal.template.daily.md)"
+  echo "  -o, --output FILE      Output file (default: journal.daily.YYYY.MM.DD.md)"
   echo "  -e, --edit             Open the journal entry in editor after creation"
   echo "  -E, --editor EDITOR    Specify editor to use (default: $EDITOR)"
   echo "  -h, --help             Display this help message and exit"
@@ -23,12 +24,17 @@ usage() {
 TEMPLATE_FILE="journal.template.daily.md"
 EDITOR="${EDITOR:-vi}"
 OPEN_EDITOR=false
+OUTPUT_FILE=""
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
   case $1 in
   -t | --template)
     TEMPLATE_FILE="$2"
+    shift
+    ;;
+  -o | --output)
+    OUTPUT_FILE="$2"
     shift
     ;;
   -e | --edit)
@@ -75,12 +81,14 @@ fi
 # Previous year for yearly revision
 PREV_YEAR=$((CURRENT_YEAR - 1))
 
-# Define output filename
-OUTPUT_FILE="journal.daily.${CURRENT_YEAR}.${CURRENT_MONTH}.${CURRENT_DAY}.md"
+# Define output filename if not specified
+if [[ -z "$OUTPUT_FILE" ]]; then
+  OUTPUT_FILE="journal.daily.${CURRENT_YEAR}.${CURRENT_MONTH}.${CURRENT_DAY}.md"
+fi
 
 # Check if file already exists
 if [[ -f "$OUTPUT_FILE" ]]; then
-  echo "Warning: Journal entry for today already exists: $OUTPUT_FILE"
+  echo "Warning: Journal entry already exists: $OUTPUT_FILE"
   read -p "Do you want to overwrite it? (y/N): " CONFIRM
   if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
     echo "Operation cancelled"
