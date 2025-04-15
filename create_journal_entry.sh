@@ -128,12 +128,16 @@ fi
 # Create journal entry from template
 echo "Creating journal entry: $OUTPUT_FILE"
 
+# Generate unique ID (21 char alphanumeric string)
+UNIQUE_ID=$(tr -dc 'a-z0-9' < /dev/urandom | head -c 21)
+
 # Replace template variables
 sed -e "s/{{ CURRENT_YEAR }}/$CURRENT_YEAR/g" \
   -e "s/{{ CURRENT_MONTH }}/$CURRENT_MONTH/g" \
   -e "s/{{ CURRENT_DAY }}/$CURRENT_DAY/g" \
   -e "s/{{ CURRENT_DATE }}/$CURRENT_DATE/g" \
   -e "s/{{ DAY_COUNT }}/$DAY_COUNT/g" \
+  -e "s/{{ UNIQUE_ID }}/$UNIQUE_ID/g" \
   "$TEMPLATE_FILE" >"$OUTPUT_FILE"
 
 # Update monthly and yearly revision links with previous dates

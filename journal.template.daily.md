@@ -1,5 +1,5 @@
 ---
-id: a1t3cohshkzdp7p26rctkwc
+id: {{ UNIQUE_ID }}
 title: 'Day {{ DAY_COUNT }} -'
 desc: ''
 updated: {{ CURRENT_DATE }}
