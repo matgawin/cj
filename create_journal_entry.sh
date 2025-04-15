@@ -13,18 +13,30 @@ usage() {
   echo
   echo "Options:"
   echo "  -t, --template FILE    Template file (default: journal.template.daily.md)"
+  echo "  -e, --edit             Open the journal entry in editor after creation"
+  echo "  -E, --editor EDITOR    Specify editor to use (default: $EDITOR)"
   echo "  -h, --help             Display this help message and exit"
   echo
 }
 
 # Default values
 TEMPLATE_FILE="journal.template.daily.md"
+EDITOR="${EDITOR:-vi}"
+OPEN_EDITOR=false
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
   case $1 in
   -t | --template)
     TEMPLATE_FILE="$2"
+    shift
+    ;;
+  -e | --edit)
+    OPEN_EDITOR=true
+    ;;
+  -E | --editor)
+    EDITOR="$2"
+    OPEN_EDITOR=true
     shift
     ;;
   -h | --help)
@@ -96,5 +108,12 @@ sed -i "s/updated: [0-9]*/updated: $CURRENT_TIMESTAMP/" "$OUTPUT_FILE"
 sed -i "s/created: [0-9]*/created: $CURRENT_TIMESTAMP/" "$OUTPUT_FILE"
 
 echo "Journal entry created successfully!"
+
+# Open editor if requested
+if [[ "$OPEN_EDITOR" = true ]]; then
+  echo "Opening journal entry in $EDITOR..."
+  "$EDITOR" "$OUTPUT_FILE"
+fi
+
 exit 0
 
