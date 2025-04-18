@@ -9,7 +9,7 @@ usage() {
   echo "Creates a daily journal entry from a template"
   echo
   echo "Options:"
-  echo "  -t, --template FILE    Template file (default: journal.template.daily.md)"
+  echo "  -t, --template FILE    Template file (default: embedded template)"
   echo "  -o, --output FILE      Output file (default: journal.daily.YYYY.MM.DD.md)"
   echo "  -e, --edit             Open the journal entry in editor after creation"
   echo "  -E, --editor EDITOR    Specify editor to use (default: $EDITOR)"
@@ -19,8 +19,40 @@ usage() {
   echo
 }
 
+# Default embedded template
+DEFAULT_TEMPLATE=$(
+  cat <<'EOT'
+---
+id: {{ UNIQUE_ID }}
+title: 'Day {{ DAY_COUNT }} -'
+desc: ''
+updated: {{ CURRENT_DATE }}
+created: {{ CURRENT_DATE }}
+---
+
+## Feelings
+
+
+## Thoughts
+### General:
+
+
+---
+## Revision:
+### Monthly:
+[[journal.daily.{{ CURRENT_YEAR }}.{{ CURRENT_MONTH }}.{{ CURRENT_DAY }}.md]].
+
+
+### Yearly:
+[[journal.daily.{{ CURRENT_YEAR }}.{{ CURRENT_MONTH }}.{{ CURRENT_DAY }}.md]].
+
+
+##
+EOT
+)
+
 # Default values
-TEMPLATE_FILE="journal.template.daily.md"
+TEMPLATE_FILE=""
 EDITOR="${EDITOR:-vi}"
 OPEN_EDITOR=false
 OUTPUT_FILE=""
@@ -73,12 +105,6 @@ while [[ "$#" -gt 0 ]]; do
   shift
 done
 
-# Check if template file exists
-if [[ ! -f "$TEMPLATE_FILE" ]]; then
-  echo "Error: Template file '$TEMPLATE_FILE' not found"
-  exit 1
-fi
-
 # Get current date components
 CURRENT_DATE=$(date +"%Y-%m-%d, %H:%M:%S")
 CURRENT_YEAR=$(date +"%Y")
@@ -129,16 +155,28 @@ fi
 echo "Creating journal entry: $OUTPUT_FILE"
 
 # Generate unique ID (21 char alphanumeric string)
-UNIQUE_ID=$(tr -dc 'a-z0-9' < /dev/urandom | head -c 21)
+UNIQUE_ID=$(tr -dc 'a-z0-9' </dev/urandom | head -c 21)
 
-# Replace template variables
-sed -e "s/{{ CURRENT_YEAR }}/$CURRENT_YEAR/g" \
+TEMPLATE=$(echo "$DEFAULT_TEMPLATE")
+# Check if we're using a custom template file or the default embedded one
+if [[ -n "$TEMPLATE_FILE" ]]; then
+  # Check if template file exists
+  if [[ ! -f "$TEMPLATE_FILE" ]]; then
+    echo "Error: Template file '$TEMPLATE_FILE' not found"
+    exit 1
+  fi
+
+  TEMPLATE=$(cat "$TEMPLATE_FILE")
+fi
+
+# Use template
+echo "$TEMPLATE" | sed -e "s/{{ CURRENT_YEAR }}/$CURRENT_YEAR/g" \
   -e "s/{{ CURRENT_MONTH }}/$CURRENT_MONTH/g" \
   -e "s/{{ CURRENT_DAY }}/$CURRENT_DAY/g" \
   -e "s/{{ CURRENT_DATE }}/$CURRENT_DATE/g" \
   -e "s/{{ DAY_COUNT }}/$DAY_COUNT/g" \
   -e "s/{{ UNIQUE_ID }}/$UNIQUE_ID/g" \
-  "$TEMPLATE_FILE" >"$OUTPUT_FILE"
+  >"$OUTPUT_FILE"
 
 # Update monthly and yearly revision links with previous dates
 CURRENT_TIMESTAMP=$(date +%s%3N)
