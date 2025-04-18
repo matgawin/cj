@@ -122,7 +122,7 @@ else
   CURRENT_SECONDS=$(date -d "$(date +%Y-%m-%d)" +%s)
   START_SECONDS=$(date -d "$START_DATE" +%s)
 fi
-DAY_COUNT=$(((CURRENT_SECONDS - START_SECONDS) / 86400 - 2))
+DAY_COUNT=$(((CURRENT_SECONDS - START_SECONDS) / 86400 + 1))
 
 # Calculate previous month for monthly revision using date command
 PREV_MONTH_DATE=$(date -d "$CURRENT_YEAR-$CURRENT_MONTH-01 -1 month" "+%Y.%m" 2>/dev/null ||
