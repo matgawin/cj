@@ -40,11 +40,11 @@ created: {{ CURRENT_DATE }}
 ---
 ## Revision:
 ### Monthly:
-[[journal.daily.{{ CURRENT_YEAR }}.{{ CURRENT_MONTH }}.{{ CURRENT_DAY }}.md]].
+[[journal.daily.{{ CURRENT_YEAR }}.{{ PREV_MONTH }}.{{ CURRENT_DAY }}.md]].
 
 
 ### Yearly:
-[[journal.daily.{{ CURRENT_YEAR }}.{{ CURRENT_MONTH }}.{{ CURRENT_DAY }}.md]].
+[[journal.daily.{{ PREV_YEAR }}.{{ CURRENT_MONTH }}.{{ CURRENT_DAY }}.md]].
 
 
 ##
@@ -125,8 +125,8 @@ fi
 DAY_COUNT=$(((CURRENT_SECONDS - START_SECONDS) / 86400 + 1))
 
 # Calculate previous month for monthly revision using date command
-PREV_MONTH_DATE=$(date -d "$CURRENT_YEAR-$CURRENT_MONTH-01 -1 month" "+%Y.%m" 2>/dev/null ||
-  date -v-1m -j -f "%Y-%m-%d" "$CURRENT_YEAR-$CURRENT_MONTH-01" "+%Y.%m" 2>/dev/null)
+PREV_MONTH_DATE=$(date -d "$CURRENT_YEAR-$CURRENT_MONTH-01 -1 month" "+%m" 2>/dev/null ||
+  date -v-1m -j -f "%Y-%m-%d" "$CURRENT_YEAR-$CURRENT_MONTH-01" "+%m" 2>/dev/null)
 PREV_YEAR=$((CURRENT_YEAR - 1))
 
 # Define output filename if not specified
@@ -180,12 +180,10 @@ echo "$TEMPLATE" | sed -e "s/{{ CURRENT_YEAR }}/$CURRENT_YEAR/g" \
 
 # Update monthly and yearly revision links with previous dates
 CURRENT_TIMESTAMP=$(date +%s%3N)
-HUMAN_TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
 
 sed "${SED_IN_PLACE[@]}" \
-  -e "/### Monthly:/,/### Yearly:/ s/$CURRENT_YEAR\.$CURRENT_MONTH/$PREV_MONTH_DATE/g" \
-  -e "/### Yearly:/,/##/ s/$CURRENT_YEAR/$PREV_YEAR/g" \
-  -e "s|<!-- TIMESTAMP -->|$HUMAN_TIMESTAMP|g" \
+  -e "s/{{ PREV_MONTH }}/$PREV_MONTH_DATE/g" \
+  -e "s/{{ PREV_YEAR }}/$PREV_YEAR/g" \
   "$OUTPUT_FILE"
 
 echo "Journal entry created successfully!"
