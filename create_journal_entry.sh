@@ -15,6 +15,8 @@ usage() {
   echo "  -E, --editor EDITOR    Specify editor to use (default: $EDITOR)"
   echo "  -d, --directory DIR    Directory to save the journal entry (default: current directory)"
   echo "  -f, --force            Force overwrite without confirmation"
+  echo "  -i, --install-service  Install timestamp monitor as a systemd user service"
+  echo "  -u, --uninstall-service  Uninstall timestamp monitor systemd user service"
   echo "  -h, --help             Display this help message and exit"
   echo
 }
@@ -58,6 +60,8 @@ OPEN_EDITOR=false
 OUTPUT_FILE=""
 OUTPUT_DIR="."
 FORCE=false
+INSTALL_SERVICE=false
+UNINSTALL_SERVICE=false
 
 # Determine sed in-place edit command (for macOS compatibility)
 if [[ "$(uname)" == "Darwin" ]]; then
@@ -92,6 +96,12 @@ while [[ "$#" -gt 0 ]]; do
   -f | --force)
     FORCE=true
     ;;
+  -i | --install-service)
+    INSTALL_SERVICE=true
+    ;;
+  -u | --uninstall-service)
+    UNINSTALL_SERVICE=true
+    ;;
   -h | --help)
     usage
     exit 0
@@ -104,6 +114,50 @@ while [[ "$#" -gt 0 ]]; do
   esac
   shift
 done
+
+# Install service if requested
+if [[ "$INSTALL_SERVICE" = true ]]; then
+  echo "Installing journal timestamp monitor service..."
+
+  # Get the absolute path of the script directory
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+
+  # Create systemd user directory if it doesn't exist
+  SYSTEMD_DIR="$HOME/.config/systemd/user"
+  mkdir -p "$SYSTEMD_DIR"
+
+  # Copy the service file to the user's systemd directory
+  cp "$SCRIPT_DIR/journal-timestamp-monitor.service" "$SYSTEMD_DIR/"
+
+  # Reload systemd and enable/start the service
+  systemctl --user daemon-reload
+  systemctl --user enable journal-timestamp-monitor.service
+  systemctl --user start journal-timestamp-monitor.service
+
+  echo "Journal timestamp monitor service installed and started successfully!"
+  echo "You can check its status with: systemctl --user status journal-timestamp-monitor.service"
+  exit 0
+fi
+
+# Uninstall service if requested
+if [[ "$UNINSTALL_SERVICE" = true ]]; then
+  echo "Uninstalling journal timestamp monitor service..."
+
+  # Stop and disable the service
+  systemctl --user stop journal-timestamp-monitor.service 2>/dev/null || true
+  systemctl --user disable journal-timestamp-monitor.service 2>/dev/null || true
+  
+  # Remove the service file
+  SYSTEMD_DIR="$HOME/.config/systemd/user"
+  if [ -f "$SYSTEMD_DIR/journal-timestamp-monitor.service" ]; then
+    rm "$SYSTEMD_DIR/journal-timestamp-monitor.service"
+    systemctl --user daemon-reload
+    echo "Journal timestamp monitor service uninstalled successfully!"
+  else
+    echo "Service file not found. It may have already been uninstalled."
+  fi
+  exit 0
+fi
 
 # Get current date components
 CURRENT_DATE=$(date +"%Y-%m-%d, %H:%M:%S")
