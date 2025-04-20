@@ -9,15 +9,15 @@ usage() {
   echo "Creates a daily journal entry from a template"
   echo
   echo "Options:"
-  echo "  -t, --template FILE    Template file (default: embedded template)"
-  echo "  -o, --output FILE      Output file (default: journal.daily.YYYY.MM.DD.md)"
-  echo "  -e, --edit             Open the journal entry in editor after creation"
-  echo "  -E, --editor EDITOR    Specify editor to use (default: $EDITOR)"
-  echo "  -d, --directory DIR    Directory to save the journal entry (default: current directory)"
-  echo "  -f, --force            Force overwrite without confirmation"
-  echo "  -i, --install-service  Install timestamp monitor as a systemd user service"
+  echo "  -t, --template FILE      Template file (default: embedded template)"
+  echo "  -o, --output FILE        Output file (default: journal.daily.YYYY.MM.DD.md)"
+  echo "  -e, --edit               Open the journal entry in editor after creation"
+  echo "  -E, --editor EDITOR      Specify editor to use (default: $EDITOR)"
+  echo "  -d, --directory DIR      Directory to save the journal entry (default: current directory)"
+  echo "  -f, --force              Force overwrite without confirmation"
+  echo "  -i, --install-service    Install timestamp monitor as a systemd user service"
   echo "  -u, --uninstall-service  Uninstall timestamp monitor systemd user service"
-  echo "  -h, --help             Display this help message and exit"
+  echo "  -h, --help               Display this help message and exit"
   echo
 }
 
@@ -146,7 +146,7 @@ if [[ "$UNINSTALL_SERVICE" = true ]]; then
   # Stop and disable the service
   systemctl --user stop journal-timestamp-monitor.service 2>/dev/null || true
   systemctl --user disable journal-timestamp-monitor.service 2>/dev/null || true
-  
+
   # Remove the service file
   SYSTEMD_DIR="$HOME/.config/systemd/user"
   if [ -f "$SYSTEMD_DIR/journal-timestamp-monitor.service" ]; then
