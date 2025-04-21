@@ -15,6 +15,7 @@ usage() {
   echo "  -E, --editor EDITOR      Specify editor to use (default: $EDITOR)"
   echo "  -d, --directory DIR      Directory to save the journal entry (default: current directory)"
   echo "  -f, --force              Force overwrite without confirmation"
+  echo "  -q, --quiet              Will not display any prompts, no messages"
   echo "  -i, --install-service    Install timestamp monitor as a systemd user service"
   echo "  -u, --uninstall-service  Uninstall timestamp monitor systemd user service"
   echo "  -h, --help               Display this help message and exit"
@@ -62,6 +63,7 @@ OUTPUT_DIR="."
 FORCE=false
 INSTALL_SERVICE=false
 UNINSTALL_SERVICE=false
+QUIET_FAIL=false
 
 # Determine sed in-place edit command (for macOS compatibility)
 if [[ "$(uname)" == "Darwin" ]]; then
@@ -69,6 +71,12 @@ if [[ "$(uname)" == "Darwin" ]]; then
 else
   SED_IN_PLACE=(-i)
 fi
+
+print() {
+  if [[ "$QUIET_FAIL" == "false" ]]; then
+    echo "$1"
+  fi
+}
 
 # Parse command line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -96,6 +104,9 @@ while [[ "$#" -gt 0 ]]; do
   -f | --force)
     FORCE=true
     ;;
+  -q | --quiet)
+    QUIET_FAIL=true
+    ;;
   -i | --install-service)
     INSTALL_SERVICE=true
     ;;
@@ -107,7 +118,7 @@ while [[ "$#" -gt 0 ]]; do
     exit 0
     ;;
   *)
-    echo "Unknown parameter: $1"
+    print "Unknown parameter: $1"
     usage
     exit 1
     ;;
@@ -117,7 +128,7 @@ done
 
 # Install service if requested
 if [[ "$INSTALL_SERVICE" = true ]]; then
-  echo "Installing journal timestamp monitor service..."
+  print "Installing journal timestamp monitor service..."
 
   # Get the absolute path of the script directory
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
@@ -134,14 +145,14 @@ if [[ "$INSTALL_SERVICE" = true ]]; then
   systemctl --user enable journal-timestamp-monitor.service
   systemctl --user start journal-timestamp-monitor.service
 
-  echo "Journal timestamp monitor service installed and started successfully!"
-  echo "You can check its status with: systemctl --user status journal-timestamp-monitor.service"
+  print "Journal timestamp monitor service installed and started successfully!"
+  print "You can check its status with: systemctl --user status journal-timestamp-monitor.service"
   exit 0
 fi
 
 # Uninstall service if requested
 if [[ "$UNINSTALL_SERVICE" = true ]]; then
-  echo "Uninstalling journal timestamp monitor service..."
+  print "Uninstalling journal timestamp monitor service..."
 
   # Stop and disable the service
   systemctl --user stop journal-timestamp-monitor.service 2>/dev/null || true
@@ -152,9 +163,9 @@ if [[ "$UNINSTALL_SERVICE" = true ]]; then
   if [ -f "$SYSTEMD_DIR/journal-timestamp-monitor.service" ]; then
     rm "$SYSTEMD_DIR/journal-timestamp-monitor.service"
     systemctl --user daemon-reload
-    echo "Journal timestamp monitor service uninstalled successfully!"
+    print "Journal timestamp monitor service uninstalled successfully!"
   else
-    echo "Service file not found. It may have already been uninstalled."
+    print "Service file not found. It may have already been uninstalled."
   fi
   exit 0
 fi
@@ -194,19 +205,22 @@ OUTPUT_FILE="$OUTPUT_DIR/$OUTPUT_FILE"
 
 # Check if file already exists
 if [[ -f "$OUTPUT_FILE" && "$FORCE" == "false" ]]; then
-  echo "Warning: Journal entry already exists: $OUTPUT_FILE"
+  print "Warning: Journal entry already exists: $OUTPUT_FILE"
+  if [[ "$QUIET_FAIL" == "true" ]]; then
+    exit 0
+  fi
   read -p "Do you want to overwrite it? (y/N): " CONFIRM
   if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
-    echo "Operation cancelled"
+    print "Operation cancelled"
     exit 0
   fi
   # Create backup of existing file
   cp "$OUTPUT_FILE" "${OUTPUT_FILE}.bak"
-  echo "Backup created: ${OUTPUT_FILE}.bak"
+  print "Backup created: ${OUTPUT_FILE}.bak"
 fi
 
 # Create journal entry from template
-echo "Creating journal entry: $OUTPUT_FILE"
+print "Creating journal entry: $OUTPUT_FILE"
 
 # Generate unique ID (21 char alphanumeric string)
 UNIQUE_ID=$(tr -dc 'a-z0-9' </dev/urandom | head -c 21)
@@ -216,7 +230,7 @@ TEMPLATE=$(echo "$DEFAULT_TEMPLATE")
 if [[ -n "$TEMPLATE_FILE" ]]; then
   # Check if template file exists
   if [[ ! -f "$TEMPLATE_FILE" ]]; then
-    echo "Error: Template file '$TEMPLATE_FILE' not found"
+    print "Error: Template file '$TEMPLATE_FILE' not found"
     exit 1
   fi
 
@@ -240,15 +254,15 @@ sed "${SED_IN_PLACE[@]}" \
   -e "s/{{ PREV_YEAR }}/$PREV_YEAR/g" \
   "$OUTPUT_FILE"
 
-echo "Journal entry created successfully!"
+print "Journal entry created successfully!"
 
 # Open editor if requested
 if [[ "$OPEN_EDITOR" = true ]]; then
   if command -v "$EDITOR" >/dev/null 2>&1; then
-    echo "Opening journal entry in $EDITOR..."
+    print "Opening journal entry in $EDITOR..."
     "$EDITOR" "$OUTPUT_FILE"
   else
-    echo "Error: Editor '$EDITOR' not found, cannot open journal entry"
+    print "Error: Editor '$EDITOR' not found, cannot open journal entry"
     exit 1
   fi
 fi
