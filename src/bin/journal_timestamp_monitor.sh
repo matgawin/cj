@@ -9,7 +9,6 @@ if [ -z "$JOURNAL_DIR" ]; then
   exit 1
 fi
 
-# Create log file
 LOG_FILE="/tmp/journal_timestamp_monitor.log"
 touch "$LOG_FILE"
 
@@ -22,13 +21,14 @@ log "Starting journal timestamp monitor for directory: $JOURNAL_DIR"
 # Function to update the timestamp in a file
 update_timestamp() {
   local file="$1"
-  local current_time=$(date +"%Y-%m-%d, %H:%M:%S")
+  local current_time
+
+  current_time=$(date +"%Y-%m-%d, %H:%M:%S")
 
   # Only update if the file is a markdown file with our journal format
   if [[ "$file" == *.md && $(grep -c "^---$" "$file" | head -n 2) -ge 2 ]]; then
     log "Updating timestamp for file: $file"
 
-    # Determine sed in-place edit command (for macOS compatibility)
     if [[ "$(uname)" == "Darwin" ]]; then
       sed -i "" "s/^updated:.*$/updated: $current_time/" "$file"
     else
@@ -61,4 +61,3 @@ else
     sleep 60
   done
 fi
-
