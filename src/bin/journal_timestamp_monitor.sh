@@ -1,63 +1,199 @@
 #!/bin/bash
-
 set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+if [[ "${SCRIPT_DIR}" == *".local/bin" ]]; then
+  COMMON_LIB="${HOME}/.local/share/journal/common.sh"
+  if [[ ! -f "${COMMON_LIB}" ]]; then
+    mkdir -p "$(dirname "${COMMON_LIB}")"
+    if [[ -f "${SCRIPT_DIR}/../lib/common.sh" ]]; then
+      cp "${SCRIPT_DIR}/../lib/common.sh" "${COMMON_LIB}"
+    fi
+  fi
+else
+  COMMON_LIB="${SCRIPT_DIR}/../lib/common.sh"
+fi
+
+if [[ -f "${COMMON_LIB}" ]]; then
+  # shellcheck disable=SC1090
+  source "${COMMON_LIB}"
+else
+  JOURNAL_LOG_FILE="/tmp/journal_timestamp_monitor.log"
+  touch "$JOURNAL_LOG_FILE"
+
+  log() {
+    local level="$1"
+    local message="$2"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [$level] - $message" >>"$JOURNAL_LOG_FILE"
+  }
+
+  error_exit() {
+    local message="$1"
+    local exit_code="${2:-1}"
+
+    log "ERROR" "Error: ${message} (exit code: ${exit_code})"
+    echo "Error: ${message}" >&2
+    exit "${exit_code}"
+  }
+
+  ensure_dir() {
+    local dir="$1"
+    if [ ! -d "$dir" ]; then
+      if ! mkdir -p "$dir" 2>/dev/null; then
+        error_exit "Could not create directory: $dir" 3
+      fi
+    fi
+  }
+
+  validate_file() {
+    local file="$1"
+    local expected_type="$2"
+    local message="${3:-Invalid file: $1}"
+
+    case "$expected_type" in
+      "dir"|"directory")
+        [ -d "$file" ] || error_exit "$message" 4
+        ;;
+      *)
+        [ -e "$file" ] || error_exit "$message" 4
+        ;;
+    esac
+  }
+fi
+
+JOURNAL_LOG_LEVEL="INFO"
 
 JOURNAL_DIR="$1"
 if [ -z "$JOURNAL_DIR" ]; then
-  echo "Error: Journal directory not specified"
-  echo "Usage: $0 <journal_directory>"
-  exit 1
+  error_exit "Journal directory not specified. Usage: $0 <journal_directory>" 1
 fi
 
-LOG_FILE="/tmp/journal_timestamp_monitor.log"
-touch "$LOG_FILE"
+ensure_dir "$JOURNAL_DIR"
+validate_file "$JOURNAL_DIR" "directory" "Journal directory does not exist or is not accessible: $JOURNAL_DIR"
 
-log() {
-  echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >>"$LOG_FILE"
-}
+log "INFO" "Starting journal timestamp monitor for directory: $JOURNAL_DIR"
 
-log "Starting journal timestamp monitor for directory: $JOURNAL_DIR"
-
-# Function to update the timestamp in a file
 update_timestamp() {
   local file="$1"
   local current_time
 
+  if [[ ! -f "$file" ]]; then
+    log "WARN" "File does not exist: $file"
+    return 1
+  fi
+
+  if [[ ! -r "$file" ]]; then
+    log "WARN" "File is not readable: $file"
+    return 1
+  fi
+
+  if [[ ! -w "$file" ]]; then
+    log "WARN" "File is not writable: $file"
+    return 1
+  fi
+
   current_time=$(date +"%Y-%m-%d, %H:%M:%S")
 
-  # Only update if the file is a markdown file with our journal format
-  if [[ "$file" == *.md && $(grep -c "^---$" "$file" | head -n 2) -ge 2 ]]; then
-    log "Updating timestamp for file: $file"
+  if [[ "$file" != *.md ]]; then
+    log "DEBUG" "Skipping non-markdown file: $file"
+    return 0
+  fi
 
-    if [[ "$(uname)" == "Darwin" ]]; then
-      sed -i "" "s/^updated:.*$/updated: $current_time/" "$file"
-    else
-      sed -i "s/^updated:.*$/updated: $current_time/" "$file"
+  if ! grep -q "^---$" "$file" || [[ $(grep -c "^---$" "$file") -lt 2 ]]; then
+    log "DEBUG" "Skipping file without proper YAML frontmatter: $file"
+    return 0
+  fi
+
+  if ! grep -q "^updated:" "$file"; then
+    log "WARN" "File does not have 'updated:' field in frontmatter: $file"
+    return 0
+  fi
+
+  log "INFO" "Updating timestamp for file: $file"
+
+  if [[ "$(uname)" == "Darwin" ]]; then
+    if ! sed -i "" "s/^updated:.*$/updated: $current_time/" "$file"; then
+      log "ERROR" "Failed to update timestamp in file: $file"
+      return 1
+    fi
+  else
+    if ! sed -i "s/^updated:.*$/updated: $current_time/" "$file"; then
+      log "ERROR" "Failed to update timestamp in file: $file"
+      return 1
     fi
   fi
+
+  log "DEBUG" "Successfully updated timestamp in file: $file"
+  return 0
+}
+
+MONITORING_INTERVAL=60 # Default monitoring interval in seconds
+
+check_modified_files() {
+  local dir="$1"
+  local interval="${2:-1}"
+
+  log "DEBUG" "Checking for files modified in the last $interval minute(s)"
+
+  if ! command -v find >/dev/null 2>&1; then
+    log "ERROR" "Required dependency 'find' not found"
+    error_exit "Required dependency 'find' not found. Cannot monitor files." 5
+  fi
+
+  find "$dir" -name "*.md" -mmin -"$interval" 2>/dev/null | while read -r file; do
+    update_timestamp "$file"
+  done
 }
 
 # Use inotifywait if available, otherwise fallback to periodic checking
 if command -v inotifywait >/dev/null 2>&1; then
-  log "Using inotifywait for file monitoring"
+  log "INFO" "Using inotifywait for file monitoring"
 
-  # Monitor directory continuously
   while true; do
-    inotifywait -q -e modify -e close_write --format "%w%f" "$JOURNAL_DIR" | while read -r file; do
+    log "DEBUG" "Starting inotify monitoring on $JOURNAL_DIR"
+
+    if [[ ! -d "$JOURNAL_DIR" ]]; then
+      log "ERROR" "Journal directory no longer exists: $JOURNAL_DIR"
+      error_exit "Journal directory no longer exists: $JOURNAL_DIR" 6
+    fi
+
+    if ! timeout 3600 inotifywait -q -m -e modify -e close_write --format "%w%f" "$JOURNAL_DIR" 2>/dev/null | while read -r file; do
       if [[ "$file" == *.md ]]; then
+        log "DEBUG" "File modified: $file"
         update_timestamp "$file"
       fi
-    done
+    done; then
+      log "WARN" "inotifywait monitoring interrupted, restarting in 5 seconds"
+      sleep 5
+    fi
+
+    log "INFO" "Restarting inotify monitoring after timeout period"
   done
 else
-  log "inotifywait not found, using periodic checking instead"
+  log "INFO" "inotifywait not found, using periodic checking instead"
 
-  # Fallback to periodic checking
+  if [[ -n "$JOURNAL_POLLING_INTERVAL" && "$JOURNAL_POLLING_INTERVAL" =~ ^[0-9]+$ ]]; then
+    MONITORING_INTERVAL="$JOURNAL_POLLING_INTERVAL"
+    log "INFO" "Using custom polling interval: $MONITORING_INTERVAL seconds"
+  fi
+
+  log "WARN" "For better performance, consider installing inotify-tools package"
+  echo "Recommendation: For better performance, consider installing inotify-tools package" >&2
+
   while true; do
-    log "Checking for modified files"
-    find "$JOURNAL_DIR" -name "*.md" -mmin -1 | while read -r file; do
-      update_timestamp "$file"
-    done
-    sleep 60
+    if [[ ! -d "$JOURNAL_DIR" ]]; then
+      log "ERROR" "Journal directory no longer exists: $JOURNAL_DIR"
+      error_exit "Journal directory no longer exists: $JOURNAL_DIR" 6
+    fi
+
+    interval_min=$(( MONITORING_INTERVAL / 60 ))
+    if [[ $interval_min -lt 1 ]]; then
+      interval_min=1
+    fi
+
+    check_modified_files "$JOURNAL_DIR" "$interval_min"
+
+    log "DEBUG" "Sleeping for $MONITORING_INTERVAL seconds before next check"
+    sleep "$MONITORING_INTERVAL"
   done
 fi

@@ -1,6 +1,4 @@
-# Makefile for Journal Management System
-
-PREFIX ?= $(HOME)/.local
+PREFIX ?= $(HOME)/.local/bin
 JOURNAL_DIR ?= $(HOME)/Journal
 SCRIPTS_DIR = scripts
 

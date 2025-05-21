@@ -1,6 +1,6 @@
 # Journal Management System
 
-A complete journal management system that helps you create and maintain journal entries with automatic timestamp updates.
+A complete journal management system that helps you create and maintain journal entries with automatic timestamp updates and home manager support.
 
 ## Features
 
@@ -14,16 +14,14 @@ A complete journal management system that helps you create and maintain journal 
 The project is organized into the following directories:
 
 - `src/bin/` - Core script files
-- `scripts/` - Installation and uninstallation scripts
-- `nix/` - Nix-related configuration
-  - `nix/modules/` - NixOS and Home Manager modules
-  - `nix/packages/` - Package definitions
+- `scripts/` - Install and uninstall scripts
+- `nix/` - Nix configuration for home-manager
 
 ## Installation
 
 Choose one of the following installation methods:
 
-### Option 1: Using Nix (recommended)
+### Option 1: Using Nix
 
 If you have Nix installed:
 
@@ -106,42 +104,44 @@ cj --uninstall-service
 
 ## Configuration
 
-### NixOS Integration
+### Home-Manager Integration
 
-Add to your `configuration.nix`:
-
+Add to your `flake.nix` inputs:
 ```nix
 {
-  imports = [ ./path/to/journal/flake.nix ];
-
-  services.journal-management = {
-    enable = true;
-    enableTimestampMonitor = true;
-    journalDirectory = "/home/yourusername/Journal";
-    user = "yourusername";
+  inputs = {
+    journal-management = {
+      url = "github:matgawin/cj";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 }
 ```
 
-### Home-Manager Integration
-
-Add to your `home.nix`:
+Then create `cj.nix` and import into your `home.nix`:
 
 ```nix
+# cj.nix
 {
-  imports = [ ./path/to/journal/flake.nix ];
+  inputs,
+  config,
+  ...
+}: {
+  imports = [
+    inputs.journal-management.homeManagerModule.default
+  ];
 
   services.journal-management = {
     enable = true;
-    enableTimestampMonitor = true;
     journalDirectory = "${config.home.homeDirectory}/Journal";
+    enableTimestampMonitor = true;
+    enableAutoCreation = true;
+    autoCreationTime = "22:00";
   };
 }
 ```
 
 ## Development
-
-For developers who want to contribute or modify the system:
 
 ```bash
 # Setup development environment using Nix
@@ -155,11 +155,7 @@ shellcheck src/bin/*.sh scripts/*.sh
 
 ### Nix Flake Structure
 
-The Nix flake configuration is split across multiple files for better maintainability:
+The Nix flake configuration is split across couple files for better maintainability:
 
 - `flake.nix` - Main entry point that imports all other Nix files
-- `nix/default.nix` - Common utilities and dependencies
-- `nix/modules/` - NixOS and Home Manager module definitions
-- `nix/packages/` - Package definitions
-- `nix/apps.nix` - App definitions for `nix run`
-- `nix/devShell.nix` - Development shell configuration
+- `nix/` - Home Manager module definitions
