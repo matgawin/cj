@@ -147,6 +147,9 @@ Then create `cj.nix` and import into your `home.nix`:
 # Setup development environment using Nix
 nix develop
 
+# optional
+direnv allow
+
 # Run shellcheck on all shell scripts
 shellcheck src/bin/*.sh scripts/*.sh
 ```

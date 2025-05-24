@@ -21,28 +21,15 @@
           inherit self;
         };
       in {
-        packages = {
-          default = journal-management;
-          journal-management = journal-management;
-        };
-
         apps = import ./nix/apps.nix {
           inherit journal-management;
         };
 
-        devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            bash
-            shellcheck
-            inotify-tools
-            coreutils
-            findutils
-            gnugrep
-            gnused
-            gawk
-            systemd
-            gnumake
-          ];
+        devShells = import ./nix/shell.nix {inherit pkgs;};
+
+        packages = {
+          inherit journal-management;
+          default = journal-management;
         };
       }
     ))
