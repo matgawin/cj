@@ -41,16 +41,17 @@ usage() {
   echo "Creates a daily journal entry from a template"
   echo
   echo "Options:"
-  echo "  -t, --template FILE      Template file (default: embedded template)"
-  echo "  -o, --output FILE        Output file (default: journal.daily.YYYY.MM.DD.md)"
-  echo "  -e, --edit               Open the journal entry in editor after creation"
-  echo "  -E, --editor EDITOR      Specify editor to use (default: $EDITOR)"
-  echo "  -d, --directory DIR      Directory to save the journal entry (default: current directory)"
-  echo "  -f, --force              Force overwrite without confirmation"
-  echo "  -q, --quiet              Will not display any prompts, no messages"
-  echo "  -i, --install-service    Install timestamp monitor as a systemd user service"
-  echo "  -u, --uninstall-service  Uninstall timestamp monitor systemd user service"
-  echo "  -h, --help               Display this help message and exit"
+  echo "  -t, --template FILE        Template file (default: embedded template)"
+  echo "  -o, --output FILE          Output file (default: journal.daily.YYYY.MM.DD.md)"
+  echo "  -e, --edit                 Open the journal entry in editor after creation"
+  echo "  -E, --editor EDITOR        Specify editor to use (default: $EDITOR)"
+  echo "  -d, --directory DIR        Directory to save the journal entry (default: current directory)"
+  echo "  -f, --force                Force overwrite without confirmation"
+  echo "  -q, --quiet                Will not display any prompts, no messages"
+  echo "  -i, --install-service      Install timestamp monitor as a systemd user service"
+  echo "  -u, --uninstall-service    Uninstall timestamp monitor systemd user service"
+  echo "  -s, --set-start-date DATE  Set the start date for journal entries (default: $(date +"%Y-%m-%d"))"
+  echo "  -h, --help                 Display this help message and exit"
   echo
 }
 
@@ -84,6 +85,9 @@ created: {{ CURRENT_DATE }}
 ##
 EOT
 )
+
+config_dir="${HOME}/.config/cj"
+config_start_date="${config_dir}/start_date"
 
 TEMPLATE_FILE=""
 EDITOR="${EDITOR:-vi}"
@@ -132,7 +136,7 @@ validate_args() {
   local requires_value=true
 
   case "$arg" in
-    -t|--template|-o|--output|-E|--editor|-d|--directory)
+    -t|--template|-o|--output|-E|--editor|-d|--directory|-s|--set-start-date)
       if [[ -z "$value" || "$value" == -* ]]; then
         print "Option $arg requires a value" "ERROR"
         usage
@@ -170,6 +174,24 @@ validate_args() {
       ;;
   esac
 
+  return 0
+}
+
+setStartDate() {
+  local start_date="$1"
+
+  if [[ ! -n "$start_date" ]]; then
+    return
+  fi
+
+  if ! date -d "$start_date" >/dev/null 2>&1 && ! date -j -f "%Y-%m-%d" "$start_date" >/dev/null 2>&1; then
+    print "Invalid date format: $start_date (expected YYYY-MM-DD)" "ERROR"
+    exit 1
+  fi
+
+  mkdir -p "$config_dir"
+  echo "$start_date" > "$config_start_date"
+  print "Start date set to: $start_date" "INFO" >&2
   return 0
 }
 
@@ -235,6 +257,16 @@ while [[ "$#" -gt 0 ]]; do
   -u | --uninstall-service)
     validate_args "$1" ""
     UNINSTALL_SERVICE=true
+    ;;
+  -s | --set-start-date)
+    if [[ -z "$2" || "$2" == -* ]]; then
+      print "Option $1 requires a value" "ERROR"
+      usage
+      exit 1
+    fi
+    validate_args "$1" "$2"
+    setStartDate "$2"
+    shift
     ;;
   -h | --help)
     validate_args "$1" ""
@@ -312,7 +344,34 @@ CURRENT_YEAR=$(date +"%Y")
 CURRENT_MONTH=$(date +"%m")
 CURRENT_DAY=$(date +"%d")
 
-START_DATE="2022-10-21"
+get_start_date() {
+  if [[ -f "$config_start_date" ]]; then
+    cat "$config_start_date"
+  else
+    local default_date
+    default_date=$(date +"%Y-%m-%d")
+
+    if [[ "$QUIET_FAIL" == "false" ]]; then
+      print "First time setup: Setting start date for day counting" "INFO" >&2
+      read -r -p "Enter start date (YYYY-MM-DD) or press Enter for today [$default_date]: " user_date
+      if [[ -n "$user_date" ]]; then
+        if ! date -d "$user_date" >/dev/null 2>&1 && ! date -j -f "%Y-%m-%d" "$user_date" >/dev/null 2>&1; then
+          print "Invalid date format, using today: $default_date" "WARN" >&2
+          user_date="$default_date"
+        fi
+      else
+        user_date="$default_date"
+      fi
+    else
+      user_date="$default_date"
+    fi
+
+    setStartDate "$user_date"
+    echo "$user_date"
+  fi
+}
+
+START_DATE=$(get_start_date)
 if [[ "$(uname)" == "Darwin" ]]; then
   CURRENT_SECONDS=$(date -j -f "%Y-%m-%d" "$(date +%Y-%m-%d)" +%s)
   START_SECONDS=$(date -j -f "%Y-%m-%d" "$START_DATE" +%s)

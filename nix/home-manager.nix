@@ -28,13 +28,22 @@ in {
     autoCreationTime = lib.mkOption {
       type = lib.types.str;
       default = "22:00";
-      description = "Time to create journal entries (HH:MM format)";
+      description = "Time at which to create journal entries (HH:MM format)";
       example = "09:00";
+    };
+
+    startDate = lib.mkOption {
+      type = lib.types.str;
+      default = "2022-10-21";
+      description = "Start date for the journal entries in YYYY-MM-DD format. Used for day counting.";
+      example = "2023-01-01";
     };
   };
 
   config = lib.mkIf cfg.enable {
     home.packages = [cfg.package];
+
+    home.file.".config/cj/start_date".text = cfg.startDate;
 
     systemd.user.services = lib.mkMerge [
       (lib.mkIf cfg.enableTimestampMonitor {
