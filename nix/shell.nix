@@ -11,6 +11,7 @@
       shellcheck
       systemd
     ];
+
     shellHook = ''
       echo "Welcome to the Journal Management System development shell!";
     '';

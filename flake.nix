@@ -3,22 +3,16 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
+    flake-parts.url = "github:hercules-ci/flake-parts";
   };
 
-  outputs = {
-    self,
-    nixpkgs,
-    flake-utils,
-    ...
-  }:
-    (flake-utils.lib.eachDefaultSystem (
-      system: let
-        pkgs = import nixpkgs {inherit system;};
-
+  outputs = inputs @ {flake-parts, ...}:
+    flake-parts.lib.mkFlake {inherit inputs;} {
+      systems = ["x86_64-linux" "aarch64-linux"];
+      perSystem = {pkgs, ...}: let
         journal-management = import ./nix/package.nix {
           inherit pkgs;
-          inherit self;
+          inherit (inputs) self;
         };
       in {
         apps = import ./nix/apps.nix {
@@ -31,18 +25,18 @@
           inherit journal-management;
           default = journal-management;
         };
-      }
-    ))
-    // {
-      homeManagerModule.default = import ./nix/home-manager.nix {inherit self;};
-
-      overlays.default = final: prev: {
-        journal-management = self.packages.${prev.system}.default;
       };
+      flake = with inputs; {
+        homeManagerModule.default = import ./nix/home-manager.nix {inherit self;};
 
-      templates.default = {
-        path = ./.;
-        description = "Journal management system with automatic timestamp updates and nixos support.";
+        overlays.default = final: prev: {
+          journal-management = self.packages.${prev.system}.default;
+        };
+
+        templates.default = {
+          path = ./.;
+          description = "Journal management system with automatic timestamp updates and nixos support.";
+        };
       };
     };
 }
