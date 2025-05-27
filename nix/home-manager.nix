@@ -10,8 +10,8 @@ in {
     enable = lib.mkEnableOption "journal management system";
 
     package = lib.mkOption {
+      inherit (self.packages.${pkgs.system}) default;
       type = lib.types.package;
-      default = self.packages.${pkgs.system}.default;
       description = "The journal management package to use.";
     };
 

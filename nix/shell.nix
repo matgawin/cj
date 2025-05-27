@@ -3,12 +3,14 @@
     buildInputs = with pkgs; [
       bash
       coreutils
+      deadnix
       fd
       gnumake
       gnused
       inotify-tools
       jujutsu
       shellcheck
+      statix
       systemd
     ];
 

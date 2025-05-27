@@ -29,7 +29,7 @@
       flake = with inputs; {
         homeManagerModule.default = import ./nix/home-manager.nix {inherit self;};
 
-        overlays.default = final: prev: {
+        overlays.default = _: prev: {
           journal-management = self.packages.${prev.system}.default;
         };
 
