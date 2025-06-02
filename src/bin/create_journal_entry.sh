@@ -55,9 +55,7 @@ usage() {
   echo
 }
 
-DEFAULT_TEMPLATE=$(
-  cat <<'EOT'
----
+DEFAULT_TEMPLATE="---
 id: {{ UNIQUE_ID }}
 title: 'Day {{ DAY_COUNT }} -'
 desc: ''
@@ -82,9 +80,7 @@ created: {{ CURRENT_DATE }}
 [[journal.daily.{{ PREV_YEAR }}.{{ CURRENT_MONTH }}.{{ CURRENT_DAY }}.md]].
 
 
-##
-EOT
-)
+###"
 
 config_dir="${HOME}/.config/cj"
 config_start_date="${config_dir}/start_date"
