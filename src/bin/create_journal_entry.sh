@@ -51,6 +51,7 @@ usage() {
   echo "  -i, --install-service      Install timestamp monitor as a systemd user service"
   echo "  -u, --uninstall-service    Uninstall timestamp monitor systemd user service"
   echo "  -s, --set-start-date DATE  Set the start date for journal entries (default: $(date +"%Y-%m-%d"))"
+  echo "      --date DATE            Override the date for this journal entry (default: today)"
   echo "  -h, --help                 Display this help message and exit"
   echo
 }
@@ -94,6 +95,7 @@ FORCE=false
 INSTALL_SERVICE=false
 UNINSTALL_SERVICE=false
 QUIET_FAIL=false
+OVERRIDE_DATE=""
 
 if [[ "$(uname)" == "Darwin" ]]; then
   SED_IN_PLACE=(-i "")
@@ -132,7 +134,7 @@ validate_args() {
   local requires_value=true
 
   case "$arg" in
-    -t|--template|-o|--output|-E|--editor|-d|--directory|-s|--set-start-date)
+    -t|--template|-o|--output|-E|--editor|-d|--directory|-s|--set-start-date|--date)
       if [[ -z "$value" || "$value" == -* ]]; then
         print "Option $arg requires a value" "ERROR"
         usage
@@ -156,6 +158,12 @@ validate_args() {
         -E|--editor)
           if ! command -v "$value" >/dev/null 2>&1; then
             print "Editor not found in PATH: $value" "WARN"
+          fi
+          ;;
+        --date)
+          if ! date -d "$value" >/dev/null 2>&1 && ! date -j -f "%Y-%m-%d" "$value" >/dev/null 2>&1; then
+            print "Invalid date format: $value (expected YYYY-MM-DD)" "ERROR"
+            exit 1
           fi
           ;;
       esac
@@ -264,6 +272,16 @@ while [[ "$#" -gt 0 ]]; do
     setStartDate "$2"
     shift
     ;;
+  --date)
+    if [[ -z "$2" || "$2" == -* ]]; then
+      print "Option $1 requires a value" "ERROR"
+      usage
+      exit 1
+    fi
+    validate_args "$1" "$2"
+    OVERRIDE_DATE="$2"
+    shift
+    ;;
   -h | --help)
     validate_args "$1" ""
     usage
@@ -335,10 +353,25 @@ if [[ "$UNINSTALL_SERVICE" = true ]]; then
   exit 0
 fi
 
-CURRENT_DATE=$(date +"%Y-%m-%d, %H:%M:%S")
-CURRENT_YEAR=$(date +"%Y")
-CURRENT_MONTH=$(date +"%m")
-CURRENT_DAY=$(date +"%d")
+# Use override date if provided, otherwise use current date
+if [[ -n "$OVERRIDE_DATE" ]]; then
+  if [[ "$(uname)" == "Darwin" ]]; then
+    CURRENT_DATE=$(date -j -f "%Y-%m-%d" "$OVERRIDE_DATE" +"%Y-%m-%d, %H:%M:%S")
+    CURRENT_YEAR=$(date -j -f "%Y-%m-%d" "$OVERRIDE_DATE" +"%Y")
+    CURRENT_MONTH=$(date -j -f "%Y-%m-%d" "$OVERRIDE_DATE" +"%m")
+    CURRENT_DAY=$(date -j -f "%Y-%m-%d" "$OVERRIDE_DATE" +"%d")
+  else
+    CURRENT_DATE=$(date -d "$OVERRIDE_DATE" +"%Y-%m-%d, %H:%M:%S")
+    CURRENT_YEAR=$(date -d "$OVERRIDE_DATE" +"%Y")
+    CURRENT_MONTH=$(date -d "$OVERRIDE_DATE" +"%m")
+    CURRENT_DAY=$(date -d "$OVERRIDE_DATE" +"%d")
+  fi
+else
+  CURRENT_DATE=$(date +"%Y-%m-%d, %H:%M:%S")
+  CURRENT_YEAR=$(date +"%Y")
+  CURRENT_MONTH=$(date +"%m")
+  CURRENT_DAY=$(date +"%d")
+fi
 
 get_start_date() {
   if [[ -f "$config_start_date" ]]; then
@@ -368,11 +401,13 @@ get_start_date() {
 }
 
 START_DATE=$(get_start_date)
+# Use override date or current date for day count calculation
+TARGET_DATE_FOR_COUNT="${OVERRIDE_DATE:-$(date +%Y-%m-%d)}"
 if [[ "$(uname)" == "Darwin" ]]; then
-  CURRENT_SECONDS=$(date -j -f "%Y-%m-%d" "$(date +%Y-%m-%d)" +%s)
+  CURRENT_SECONDS=$(date -j -f "%Y-%m-%d" "$TARGET_DATE_FOR_COUNT" +%s)
   START_SECONDS=$(date -j -f "%Y-%m-%d" "$START_DATE" +%s)
 else
-  CURRENT_SECONDS=$(date -d "$(date +%Y-%m-%d)" +%s)
+  CURRENT_SECONDS=$(date -d "$TARGET_DATE_FOR_COUNT" +%s)
   START_SECONDS=$(date -d "$START_DATE" +%s)
 fi
 DAY_COUNT=$(((CURRENT_SECONDS - START_SECONDS) / 86400 + 1))
