@@ -137,6 +137,7 @@ Then create `cj.nix` and import into your `home.nix`:
     enableTimestampMonitor = true;
     enableAutoCreation = true;
     autoCreationTime = "22:00";
+    startDate = "2022-10-21";
   };
 }
 ```

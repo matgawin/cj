@@ -5,7 +5,7 @@
 }:
 pkgs.stdenv.mkDerivation rec {
   pname = "journal-management";
-  version = "0.1.0";
+  version = "1.0.2";
   src = self;
 
   nativeBuildInputs = with pkgs; [
