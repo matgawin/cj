@@ -416,43 +416,154 @@ if [[ "$INSTALL_SERVICE" = true ]]; then
   SYSTEMD_DIR="$HOME/.config/systemd/user"
   mkdir -p "$SYSTEMD_DIR"
 
+  # Detect sops config for service environment
+  service_sops_config=""
+  service_environment_vars=""
+
+  if [[ "$SOPS_AVAILABLE" == "true" ]]; then
+    service_sops_config=$(detect_sops_config 2>/dev/null || echo "")
+    if [[ -n "$service_sops_config" ]]; then
+      # Make path absolute for service
+      if [[ "$service_sops_config" != /* ]]; then
+        service_sops_config="$(pwd)/$service_sops_config"
+      fi
+      print "Service will use SOPS config: $service_sops_config"
+      service_environment_vars="Environment=SOPS_CONFIG_PATH=$service_sops_config"
+    else
+      print "No SOPS config detected - service will operate in unencrypted mode"
+    fi
+  fi
+
+  # Make OUTPUT_DIR absolute for service
+  service_working_dir="$OUTPUT_DIR"
+  if [[ "$service_working_dir" != /* ]]; then
+    service_working_dir="$(pwd)/$service_working_dir"
+  fi
+
   cat > "$SYSTEMD_DIR/journal-timestamp-monitor.service" << EOF
 [Unit]
-Description=Journal Timestamp Monitor Service
-After=network.target
+Description=Journal Timestamp Monitor Service (with encryption support)
+After=network.target graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=${MONITOR_SCRIPT} "${OUTPUT_DIR}"
+ExecStart=${MONITOR_SCRIPT} "${service_working_dir}"
 Restart=on-failure
 RestartSec=5s
+WorkingDirectory=${service_working_dir}
+${service_environment_vars}
 
 [Install]
 WantedBy=default.target
 EOF
 
+  # Install auto-creation service and timer if they don't exist
+  if [[ ! -f "$SYSTEMD_DIR/journal-auto-create.service" ]]; then
+    print "Installing journal auto-creation service..."
+
+    # Use the main script for auto-creation
+    main_script_path
+    if [[ "${SCRIPT_DIR}" == *".local/bin" ]]; then
+      main_script_path="${SCRIPT_DIR}/cj"
+    else
+      main_script_path="${SCRIPT_DIR}/create_journal_entry.sh"
+    fi
+
+    cat > "$SYSTEMD_DIR/journal-auto-create.service" << EOF
+[Unit]
+Description=Create Daily Journal Entry (with encryption support)
+
+[Service]
+Type=oneshot
+ExecStart=${main_script_path} -d "${service_working_dir}" -q
+WorkingDirectory=${service_working_dir}
+${service_environment_vars}
+EOF
+
+    cat > "$SYSTEMD_DIR/journal-auto-create.timer" << EOF
+[Unit]
+Description=Daily Journal Entry Creation
+Requires=journal-auto-create.service
+
+[Timer]
+OnCalendar=*-*-* 22:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    print "Auto-creation service and timer installed"
+  fi
+
   systemctl --user daemon-reload
   systemctl --user enable journal-timestamp-monitor.service
   systemctl --user start journal-timestamp-monitor.service
 
-  print "Journal timestamp monitor service installed and started successfully!"
-  print "You can check its status with: systemctl --user status journal-timestamp-monitor.service"
+  # Enable auto-creation timer if it was created
+  if [[ -f "$SYSTEMD_DIR/journal-auto-create.timer" ]]; then
+    systemctl --user enable journal-auto-create.timer
+    systemctl --user start journal-auto-create.timer
+    print "Auto-creation timer enabled"
+  fi
+
+  print "Journal services installed and started successfully!"
+  print "Timestamp Monitor: systemctl --user status journal-timestamp-monitor.service"
+  if [[ -f "$SYSTEMD_DIR/journal-auto-create.timer" ]]; then
+    print "Auto-Creation Timer: systemctl --user status journal-auto-create.timer"
+  fi
   exit 0
 fi
 
 if [[ "$UNINSTALL_SERVICE" = true ]]; then
-  print "Uninstalling journal timestamp monitor service..."
-
-  systemctl --user stop journal-timestamp-monitor.service 2>/dev/null || true
-  systemctl --user disable journal-timestamp-monitor.service 2>/dev/null || true
+  print "Uninstalling journal services..."
 
   SYSTEMD_DIR="$HOME/.config/systemd/user"
-  if [ -f "$SYSTEMD_DIR/journal-timestamp-monitor.service" ]; then
+  services_removed=0
+
+  # Stop and disable timestamp monitor service
+  if systemctl --user stop journal-timestamp-monitor.service 2>/dev/null; then
+    print "Stopped timestamp monitor service"
+  fi
+  if systemctl --user disable journal-timestamp-monitor.service 2>/dev/null; then
+    print "Disabled timestamp monitor service"
+  fi
+
+  # Stop and disable auto-creation timer and service
+  if systemctl --user stop journal-auto-create.timer 2>/dev/null; then
+    print "Stopped auto-creation timer"
+  fi
+  if systemctl --user disable journal-auto-create.timer 2>/dev/null; then
+    print "Disabled auto-creation timer"
+  fi
+  if systemctl --user stop journal-auto-create.service 2>/dev/null; then
+    print "Stopped auto-creation service"
+  fi
+
+  # Remove service files
+  if [[ -f "$SYSTEMD_DIR/journal-timestamp-monitor.service" ]]; then
     rm "$SYSTEMD_DIR/journal-timestamp-monitor.service"
+    print "Removed timestamp monitor service file"
+    services_removed=$((services_removed + 1))
+  fi
+
+  if [[ -f "$SYSTEMD_DIR/journal-auto-create.service" ]]; then
+    rm "$SYSTEMD_DIR/journal-auto-create.service"
+    print "Removed auto-creation service file"
+    services_removed=$((services_removed + 1))
+  fi
+
+  if [[ -f "$SYSTEMD_DIR/journal-auto-create.timer" ]]; then
+    rm "$SYSTEMD_DIR/journal-auto-create.timer"
+    print "Removed auto-creation timer file"
+    services_removed=$((services_removed + 1))
+  fi
+
+  if [[ $services_removed -gt 0 ]]; then
     systemctl --user daemon-reload
-    print "Journal timestamp monitor service uninstalled successfully!"
+    print "Journal services uninstalled successfully! ($services_removed files removed)"
   else
-    print "Service file not found. It may have already been uninstalled."
+    print "No journal service files found. They may have already been uninstalled."
   fi
   exit 0
 fi
@@ -704,18 +815,28 @@ if [[ "$SOPS_AVAILABLE" == "true" ]]; then
   if check_sops_availability_with_guidance; then
     print "SOPS executable available: $SOPS_VERSION" "DEBUG"
 
-    # Use custom SOPS config path if provided, otherwise auto-detect
+    # Use custom SOPS config path if provided via parameter, environment, or auto-detect
+    config_source=""
     if [[ -n "$SOPS_CONFIG_PATH" ]]; then
+      # Command line parameter takes precedence
       SOPS_CONFIG=$(detect_sops_config "$SOPS_CONFIG_PATH" 2>/dev/null || echo "")
-      if [[ -n "$SOPS_CONFIG" ]]; then
-        print "Using custom SOPS config: $SOPS_CONFIG" "INFO"
-      else
-        print "Custom SOPS config path provided but no config found: $SOPS_CONFIG_PATH" "ERROR"
-        print "Please ensure the path is correct and the file exists" "ERROR"
-        exit 1
-      fi
+      config_source="command line parameter"
+    elif [[ -n "${SOPS_CONFIG_PATH:-}" ]]; then
+      # Environment variable (e.g., from systemd service)
+      SOPS_CONFIG=$(detect_sops_config "${SOPS_CONFIG_PATH}" 2>/dev/null || echo "")
+      config_source="environment variable"
     else
+      # Auto-detect
       SOPS_CONFIG=$(detect_sops_config 2>/dev/null || echo "")
+      config_source="auto-detection"
+    fi
+
+    if [[ -n "$SOPS_CONFIG" ]]; then
+      print "Using SOPS config from $config_source: $SOPS_CONFIG" "DEBUG"
+    elif [[ -n "$SOPS_CONFIG_PATH" ]]; then
+      print "Custom SOPS config path provided but no config found: $SOPS_CONFIG_PATH" "ERROR"
+      print "Please ensure the path is correct and the file exists" "ERROR"
+      exit 1
     fi
 
     if [[ -n "$SOPS_CONFIG" ]]; then
@@ -947,7 +1068,7 @@ if [[ "$SOPS_ENCRYPTION_ENABLED" == "true" ]]; then
   print "Encrypting journal entry with SOPS..." "INFO"
 
   # Create backup before encryption for atomic operation
-  local temp_backup="${OUTPUT_FILE}.tmp.backup"
+  temp_backup="${OUTPUT_FILE}.tmp.backup"
   if ! cp "$OUTPUT_FILE" "$temp_backup" 2>/dev/null; then
     print "Warning: Could not create temporary backup for atomic encryption" "WARN"
     print "Proceeding with in-place encryption (non-atomic)" "WARN"
@@ -955,7 +1076,7 @@ if [[ "$SOPS_ENCRYPTION_ENABLED" == "true" ]]; then
   fi
 
   # Attempt encryption with detailed error handling
-  local sops_error
+  sops_error
   if sops_error=$(sops --encrypt --in-place "$OUTPUT_FILE" 2>&1); then
     print "Journal entry encrypted successfully" "INFO"
     print "File saved as encrypted: $OUTPUT_FILE" "INFO"
@@ -1008,7 +1129,7 @@ if [[ "$OPEN_EDITOR" = true ]]; then
 
   # Enhanced editor selection with encryption status awareness
   USE_SOPS_FOR_EDITING=false
-  local file_encrypted=false
+  file_encrypted=false
 
   # Check encryption status with user-friendly messaging
   if [[ "$SOPS_AVAILABLE" == "true" ]] && [[ -n "$SOPS_CONFIG" ]]; then
