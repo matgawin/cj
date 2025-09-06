@@ -11,6 +11,7 @@
       jujutsu
       shellcheck
       statix
+      sops
       systemd
     ];
 
