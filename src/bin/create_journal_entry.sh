@@ -34,6 +34,24 @@ else
   }
 fi
 
+# Source sops utilities if available
+SOPS_LIB="${SCRIPT_DIR}/../lib/sops_utils.sh"
+if [[ "${SCRIPT_DIR}" == *".local/bin" ]]; then
+  SOPS_LIB="${HOME}/.local/share/journal/sops_utils.sh"
+  if [[ ! -f "${SOPS_LIB}" ]]; then
+    mkdir -p "$(dirname "${SOPS_LIB}")"
+    if [[ -f "${SCRIPT_DIR}/../lib/sops_utils.sh" ]]; then
+      cp "${SCRIPT_DIR}/../lib/sops_utils.sh" "${SOPS_LIB}"
+    fi
+  fi
+fi
+
+SOPS_AVAILABLE=false
+if [[ -f "${SOPS_LIB}" ]]; then
+  # shellcheck disable=SC1090
+  source "${SOPS_LIB}" 2>/dev/null && SOPS_AVAILABLE=true
+fi
+
 JOURNAL_LOG_LEVEL="INFO"
 
 usage() {
@@ -353,6 +371,25 @@ if [[ "$UNINSTALL_SERVICE" = true ]]; then
   exit 0
 fi
 
+# Detect SOPS configuration early in execution
+SOPS_CONFIG=""
+SOPS_ENCRYPTION_ENABLED=false
+if [[ "$SOPS_AVAILABLE" == "true" ]]; then
+  SOPS_CONFIG=$(detect_sops_config 2>/dev/null || echo "")
+  if [[ -n "$SOPS_CONFIG" ]]; then
+    if check_sops_available; then
+      SOPS_ENCRYPTION_ENABLED=true
+      print "SOPS encryption enabled (config: $SOPS_CONFIG)" "DEBUG"
+    else
+      print "SOPS config found but executable not available" "WARN"
+    fi
+  else
+    print "Operating in unencrypted mode (no .sops.yaml found)" "INFO"
+  fi
+else
+  print "Operating in unencrypted mode (SOPS utilities not available)" "DEBUG"
+fi
+
 # Use override date if provided, otherwise use current date
 if [[ -n "$OVERRIDE_DATE" ]]; then
   if [[ "$(uname)" == "Darwin" ]]; then
@@ -549,13 +586,20 @@ fi
 
 print "Journal entry created successfully!" "INFO"
 
-if [[ "$OPEN_EDITOR" = true ]]; then
-  if ! command -v "$EDITOR" >/dev/null 2>&1; then
-    print "Error: Editor '$EDITOR' not found, cannot open journal entry" "ERROR"
-    print "You can still find your journal entry at: $OUTPUT_FILE" "INFO"
-    exit 1
+# Encrypt the file if SOPS is enabled
+if [[ "$SOPS_ENCRYPTION_ENABLED" == "true" ]]; then
+  print "Creating encrypted journal entry" "INFO"
+  
+  if ! sops --encrypt --in-place "$OUTPUT_FILE" 2>/dev/null; then
+    print "Failed to encrypt journal entry with SOPS" "ERROR"
+    print "The unencrypted file remains at: $OUTPUT_FILE" "WARN"
+    # Don't exit here - user can still work with unencrypted file
+  else
+    print "Journal entry encrypted successfully" "INFO"
   fi
+fi
 
+if [[ "$OPEN_EDITOR" = true ]]; then
   if [[ ! -f "$OUTPUT_FILE" ]]; then
     print "Error: Journal entry file no longer exists: $OUTPUT_FILE" "ERROR"
     exit 1
@@ -566,12 +610,44 @@ if [[ "$OPEN_EDITOR" = true ]]; then
     exit 1
   fi
 
-  print "Opening journal entry in $EDITOR..." "INFO"
+  # Determine if we should use sops for editing
+  USE_SOPS_FOR_EDITING=false
+  if [[ "$SOPS_AVAILABLE" == "true" ]] && [[ -n "$SOPS_CONFIG" ]]; then
+    # Check if the file is encrypted
+    if is_file_encrypted "$OUTPUT_FILE"; then
+      USE_SOPS_FOR_EDITING=true
+      print "Opening encrypted journal entry with sops" "INFO"
+    else
+      print "Opening journal entry in $EDITOR..." "INFO"
+    fi
+  else
+    if ! command -v "$EDITOR" >/dev/null 2>&1; then
+      print "Error: Editor '$EDITOR' not found, cannot open journal entry" "ERROR"
+      print "You can still find your journal entry at: $OUTPUT_FILE" "INFO"
+      exit 1
+    fi
+    print "Opening journal entry in $EDITOR..." "INFO"
+  fi
 
-  if ! "$EDITOR" "$OUTPUT_FILE"; then
-    print "Warning: Editor '$EDITOR' exited with an error" "WARN"
-    print "Your journal entry was created successfully at: $OUTPUT_FILE" "INFO"
-    exit 1
+  # Open the file with the appropriate method
+  if [[ "$USE_SOPS_FOR_EDITING" == "true" ]]; then
+    if ! sops "$OUTPUT_FILE"; then
+      print "Warning: SOPS editor exited with an error" "WARN"
+      print "Your journal entry was created successfully at: $OUTPUT_FILE" "INFO"
+      exit 1
+    fi
+  else
+    if ! command -v "$EDITOR" >/dev/null 2>&1; then
+      print "Error: Editor '$EDITOR' not found, cannot open journal entry" "ERROR"
+      print "You can still find your journal entry at: $OUTPUT_FILE" "INFO"
+      exit 1
+    fi
+    
+    if ! "$EDITOR" "$OUTPUT_FILE"; then
+      print "Warning: Editor '$EDITOR' exited with an error" "WARN"
+      print "Your journal entry was created successfully at: $OUTPUT_FILE" "INFO"
+      exit 1
+    fi
   fi
 fi
 
