@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # sops_utils.sh - Foundational SOPS encryption detection utilities
 #
@@ -77,7 +77,7 @@ detect_sops_config() {
 #
 check_sops_available() {
     log "DEBUG" "Checking if SOPS is available in PATH"
-    
+
     if command -v sops &>/dev/null; then
         local sops_version
         sops_version=$(sops --version 2>/dev/null | head -n1 || echo "unknown")
@@ -103,12 +103,12 @@ check_sops_available() {
 #
 check_sops_availability_with_guidance() {
     local sops_version_output
-    
+
     log "DEBUG" "Performing enhanced SOPS availability check"
-    
+
     if ! command -v sops >/dev/null 2>&1; then
         log "ERROR" "SOPS executable not found in PATH"
-        
+
         # Provide helpful installation guidance based on platform
         if command -v brew >/dev/null 2>&1; then
             log "ERROR" "Error: sops command not found. Install with: brew install sops"
@@ -121,14 +121,14 @@ check_sops_availability_with_guidance() {
         else
             log "ERROR" "Error: sops command not found. Please install sops from: https://github.com/mozilla/sops"
         fi
-        
+
         SOPS_EXECUTABLE_AVAILABLE=false
         SOPS_VERSION=""
         return 1
     fi
-    
+
     SOPS_EXECUTABLE_AVAILABLE=true
-    
+
     # Get version information
     if sops_version_output=$(sops --version 2>/dev/null | head -n1); then
         SOPS_VERSION="$sops_version_output"
@@ -137,11 +137,11 @@ check_sops_availability_with_guidance() {
         log "WARN" "SOPS executable found but version check failed"
         SOPS_VERSION="unknown"
     fi
-    
+
     # Check version compatibility (version 3.0.0+ is recommended)
     local version_number
     version_number=$(echo "$SOPS_VERSION" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || echo "0.0.0")
-    
+
     if [[ "$version_number" != "0.0.0" ]]; then
         local major minor patch
         IFS='.' read -r major minor patch <<< "$version_number"
@@ -152,7 +152,7 @@ check_sops_availability_with_guidance() {
             log "INFO" "SOPS version $version_number detected. Consider updating to 3.0.5+ for latest bug fixes."
         fi
     fi
-    
+
     return 0
 }
 
@@ -169,49 +169,49 @@ check_sops_availability_with_guidance() {
 #
 is_file_encrypted() {
     local file_path="$1"
-    
+
     if [[ -z "$file_path" ]]; then
         log "ERROR" "is_file_encrypted: file_path parameter is required"
         return 2
     fi
-    
+
     log "DEBUG" "Checking if file is encrypted: $file_path"
-    
+
     # Check if file exists and is readable
     if [[ ! -f "$file_path" ]]; then
         log "WARN" "File does not exist: $file_path"
         return 2
     fi
-    
+
     if [[ ! -r "$file_path" ]]; then
         log "WARN" "File is not readable: $file_path"
         return 2
     fi
-    
+
     # Check for SOPS encryption markers in the file
-    # SOPS typically adds metadata like "sops:" or "sops_version:"
-    if grep -q "sops:" "$file_path" 2>/dev/null; then
-        log "DEBUG" "File appears to be SOPS encrypted (found 'sops:' marker): $file_path"
+    # SOPS typically adds metadata like '"sops":' or "sops_version:"
+    if grep -q '"sops":' "$file_path" 2>/dev/null; then
+        log "DEBUG" "File appears to be SOPS encrypted (found '\"sops\":' marker): $file_path"
         return 0
     fi
-    
+
     if grep -q "sops_version:" "$file_path" 2>/dev/null; then
         log "DEBUG" "File appears to be SOPS encrypted (found 'sops_version:' marker): $file_path"
         return 0
     fi
-    
+
     # Check for encrypted data patterns (base64-like strings that SOPS uses)
     if grep -q "ENC\[" "$file_path" 2>/dev/null; then
         log "DEBUG" "File appears to be SOPS encrypted (found 'ENC[' pattern): $file_path"
         return 0
     fi
-    
+
     # Check for PGP/GPG encrypted blocks
     if grep -q "-----BEGIN PGP MESSAGE-----" "$file_path" 2>/dev/null; then
         log "DEBUG" "File appears to be PGP/GPG encrypted: $file_path"
         return 0
     fi
-    
+
     log "DEBUG" "File does not appear to be encrypted: $file_path"
     return 1
 }
@@ -230,20 +230,20 @@ is_file_encrypted() {
 #
 detect_file_encryption_status() {
     local file_path="$1"
-    
+
     if [[ -z "$file_path" ]]; then
         log "ERROR" "detect_file_encryption_status: file_path parameter is required"
         echo "error"
         return 1
     fi
-    
+
     log "DEBUG" "Detecting encryption status for: $file_path"
-    
+
     # Try automatic detection first
     local detection_result
     is_file_encrypted "$file_path"
     detection_result=$?
-    
+
     case $detection_result in
         0)
             log "INFO" "File detected as encrypted: $file_path"
@@ -266,10 +266,10 @@ detect_file_encryption_status() {
             log "WARN" "Automatic encryption detection failed for: $file_path"
             ;;
     esac
-    
+
     # If automatic detection is inconclusive, prompt the user
     log "INFO" "Automatic encryption detection inconclusive, prompting user"
-    
+
     # Use confirm_action if available from common.sh, otherwise implement inline
     if command -v confirm_action &>/dev/null; then
         if confirm_action "Is this file encrypted?" "n"; then
@@ -314,9 +314,9 @@ detect_file_encryption_status() {
 #
 sops_config_exists() {
     local config_path="${1:-}"
-    
+
     log "DEBUG" "Checking if SOPS config exists${config_path:+ at: $config_path}"
-    
+
     # This function is essentially an alias for detect_sops_config
     # but with clearer naming for the specific use case of existence checking
     detect_sops_config "$config_path"
@@ -344,31 +344,31 @@ SOPS_VERSION=""
 #
 validate_sops_config() {
     local config_path="$1"
-    
+
     if [[ -z "$config_path" ]]; then
         log "ERROR" "validate_sops_config: config_path parameter is required"
         return 1
     fi
-    
+
     log "DEBUG" "Validating SOPS config: $config_path"
-    
+
     # Check if file exists and is readable
     if [[ ! -f "$config_path" ]]; then
         log "ERROR" "SOPS config file not found: $config_path"
         return 1
     fi
-    
+
     if [[ ! -r "$config_path" ]]; then
         log "ERROR" "SOPS config file is not readable: $config_path"
         return 1
     fi
-    
+
     # Check if file is empty
     if [[ ! -s "$config_path" ]]; then
         log "ERROR" "SOPS config file is empty: $config_path"
         return 1
     fi
-    
+
     # Validate YAML format (basic check)
     if command -v python3 >/dev/null 2>&1; then
         if ! python3 -c "import yaml; yaml.safe_load(open('$config_path'))" 2>/dev/null; then
@@ -386,33 +386,33 @@ validate_sops_config() {
             log "WARN" "SOPS config contains tabs - YAML should use spaces for indentation: $config_path"
         fi
     fi
-    
+
     # Check for required sections
     local has_creation_rules=false
     local has_keys=false
-    
+
     if grep -q "creation_rules:" "$config_path" 2>/dev/null; then
         has_creation_rules=true
         log "DEBUG" "Found creation_rules section in SOPS config"
     fi
-    
+
     # Check for key configurations (PGP, KMS, etc.)
     if grep -qE "(pgp|kms|age|azure_kv|hc_vault|gcp_kms):" "$config_path" 2>/dev/null; then
         has_keys=true
         log "DEBUG" "Found key configuration in SOPS config"
     fi
-    
+
     if [[ "$has_creation_rules" == "false" ]]; then
         log "WARN" "SOPS config appears to be missing creation_rules section: $config_path"
         log "WARN" "This may prevent automatic encryption of new files"
     fi
-    
+
     if [[ "$has_keys" == "false" ]]; then
         log "ERROR" "SOPS config appears to be missing key configuration (pgp, kms, age, etc.): $config_path"
         log "ERROR" "At least one key type must be configured for encryption to work"
         return 1
     fi
-    
+
     log "DEBUG" "SOPS config validation passed: $config_path"
     return 0
 }
@@ -431,53 +431,63 @@ validate_sops_config() {
 test_sops_encryption() {
     local config_path="${1:-}"
     local temp_file temp_encrypted_file
-    
+
     log "DEBUG" "Testing SOPS encryption functionality"
-    
-    # Create temporary test file
-    temp_file=$(mktemp) || {
+
+    # Create temporary test file with .md extension to match SOPS creation rules
+    if temp_file=$(mktemp --suffix=.md 2>/dev/null); then
+        log "DEBUG" "Created temporary test file: $temp_file"
+    elif temp_file=$(mktemp); then
+        # Fallback for systems without --suffix support
+        mv "$temp_file" "${temp_file}.md"
+        temp_file="${temp_file}.md"
+        log "DEBUG" "Created temporary test file with fallback method: $temp_file"
+    else
         log "ERROR" "Failed to create temporary file for SOPS test"
         return 1
-    }
-    
+    fi
+
     temp_encrypted_file="${temp_file}.enc"
-    
+
     # Cleanup function
     cleanup_test_files() {
         rm -f "$temp_file" "$temp_encrypted_file" 2>/dev/null
     }
-    
+
     # Set trap for cleanup
     trap cleanup_test_files EXIT
-    
+
     # Write test content
     echo "test_data: hello_world" > "$temp_file" || {
         log "ERROR" "Failed to write test data"
         cleanup_test_files
         return 1
     }
-    
+
     # Test encryption
-    local sops_cmd="sops --encrypt"
+    local sops_args=("--encrypt")
     if [[ -n "$config_path" ]]; then
-        sops_cmd="$sops_cmd --config '$config_path'"
+        sops_args+=("--config" "$config_path")
     fi
-    sops_cmd="$sops_cmd '$temp_file'"
-    
-    if ! eval "$sops_cmd" > "$temp_encrypted_file" 2>/dev/null; then
+    sops_args+=("$temp_file")
+
+    log "DEBUG" "Running SOPS command: sops ${sops_args[*]}"
+    if ! sops "${sops_args[@]}" > "$temp_encrypted_file" 2>/dev/null; then
+        local sops_error
+        sops_error=$(sops "${sops_args[@]}" 2>&1)
         log "ERROR" "SOPS encryption test failed - unable to encrypt test file"
         log "ERROR" "This may indicate missing or invalid encryption keys"
         cleanup_test_files
         return 1
     fi
-    
+
     # Verify encrypted file contains SOPS metadata
-    if ! grep -q "sops:" "$temp_encrypted_file" 2>/dev/null; then
+    if ! grep -q '"sops":' "$temp_encrypted_file" 2>/dev/null; then
         log "ERROR" "SOPS encryption test failed - encrypted file missing SOPS metadata"
         cleanup_test_files
         return 1
     fi
-    
+
     # Test decryption
     local decrypted_content
     if ! decrypted_content=$(sops --decrypt "$temp_encrypted_file" 2>/dev/null); then
@@ -486,14 +496,14 @@ test_sops_encryption() {
         cleanup_test_files
         return 1
     fi
-    
+
     # Verify decrypted content matches original
     if [[ "$decrypted_content" != "test_data: hello_world" ]]; then
         log "ERROR" "SOPS encryption test failed - decrypted content doesn't match original"
         cleanup_test_files
         return 1
     fi
-    
+
     log "DEBUG" "SOPS encryption test passed successfully"
     cleanup_test_files
     return 0
@@ -512,17 +522,17 @@ test_sops_encryption() {
 #
 get_sops_error_guidance() {
     local error_output="$1"
-    
+
     if [[ -z "$error_output" ]]; then
         return 0
     fi
-    
+
     # Use print function if available (from main script), otherwise use log
     local print_func="log"
     if type -t print >/dev/null 2>&1; then
         print_func="print"
     fi
-    
+
     # Common error patterns and guidance
     if echo "$error_output" | grep -qi "no key could decrypt"; then
         $print_func "Decryption failed: No accessible encryption keys found" "ERROR"

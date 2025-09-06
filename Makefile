@@ -2,7 +2,7 @@ PREFIX ?= $(HOME)/.local/bin
 JOURNAL_DIR ?= $(HOME)/Journal
 SCRIPTS_DIR = scripts
 
-.PHONY: all help install install-service uninstall uninstall-service
+.PHONY: all help install install-service uninstall uninstall-service test lint
 
 all: help
 
@@ -17,6 +17,10 @@ help:
 	@echo "Uninstallation targets:"
 	@echo "  uninstall       - Uninstall the journal management scripts"
 	@echo "  uninstall-service - Uninstall the systemd service"
+	@echo
+	@echo "Development targets:"
+	@echo "  test            - Run comprehensive integration tests"
+	@echo "  lint            - Run shellcheck on all shell scripts"
 	@echo
 	@echo "Other targets:"
 	@echo "  help            - Show this help message"
@@ -41,3 +45,11 @@ uninstall:
 uninstall-service:
 	@echo "Uninstalling journal timestamp monitor service..."
 	@bash src/bin/create_journal_entry.sh --uninstall-service
+
+test:
+	@echo "Running comprehensive integration tests..."
+	@$(SCRIPTS_DIR)/run_tests.sh
+
+lint:
+	@echo "Running shellcheck on all shell scripts..."
+	@shellcheck src/bin/*.sh src/lib/*.sh scripts/*.sh || echo "Some shellcheck warnings found (see above)"

@@ -51,6 +51,13 @@ in {
       default = true;
       description = "Enable SOPS encryption support for journal services. Requires sops to be available in PATH.";
     };
+
+    sopsAgeKeyFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Path to Age private key file for SOPS decryption. If null, defaults to SOPS_AGE_KEY_FILE environment variable or ~/.config/sops/age/keys.txt";
+      example = "${config.home.homeDirectory}/.config/sops/age/keys.txt";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -71,8 +78,10 @@ in {
             Restart = "on-failure";
             RestartSec = "5s";
             WorkingDirectory = cfg.journalDirectory;
-          } // lib.optionalAttrs (cfg.enableSopsSupport && cfg.sopsConfig != null) {
-            Environment = ["SOPS_CONFIG_PATH=${cfg.sopsConfig}"];
+          } // lib.optionalAttrs cfg.enableSopsSupport {
+            Environment = [] 
+              ++ lib.optionals (cfg.sopsConfig != null) ["SOPS_CONFIG_PATH=${cfg.sopsConfig}"]
+              ++ lib.optionals (cfg.sopsAgeKeyFile != null) ["SOPS_AGE_KEY_FILE=${cfg.sopsAgeKeyFile}"];
           };
           Install.WantedBy = ["default.target"];
         };
@@ -85,8 +94,10 @@ in {
             Type = "oneshot";
             ExecStart = "${cfg.package}/bin/cj -d ${cfg.journalDirectory} -q";
             WorkingDirectory = cfg.journalDirectory;
-          } // lib.optionalAttrs (cfg.enableSopsSupport && cfg.sopsConfig != null) {
-            Environment = ["SOPS_CONFIG_PATH=${cfg.sopsConfig}"];
+          } // lib.optionalAttrs cfg.enableSopsSupport {
+            Environment = [] 
+              ++ lib.optionals (cfg.sopsConfig != null) ["SOPS_CONFIG_PATH=${cfg.sopsConfig}"]
+              ++ lib.optionals (cfg.sopsAgeKeyFile != null) ["SOPS_AGE_KEY_FILE=${cfg.sopsAgeKeyFile}"];
           };
         };
       })

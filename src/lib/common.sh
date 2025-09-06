@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 JOURNAL_LOG_FILE="${HOME}/.local/share/journal/journal.log"
 JOURNAL_LOG_LEVEL="INFO"  # DEBUG, INFO, WARN, ERROR, NONE

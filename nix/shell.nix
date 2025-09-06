@@ -1,6 +1,7 @@
 {pkgs ? import <nixpkgs> {}, ...}: {
   default = pkgs.mkShell {
     buildInputs = with pkgs; [
+      age
       bash
       coreutils
       deadnix
