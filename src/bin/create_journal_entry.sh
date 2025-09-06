@@ -65,7 +65,8 @@ usage() {
   echo "  -E, --editor EDITOR        Specify editor to use (default: $EDITOR)"
   echo "  -d, --directory DIR        Directory to save the journal entry (default: current directory)"
   echo "  -f, --force                Force overwrite without confirmation"
-  echo "  -q, --quiet                Will not display any prompts, no messages"
+  echo "  -q, --quiet                Suppress informational messages (errors still shown)"
+  echo "  -v, --verbose              Enable verbose output for debugging"
   echo "  -i, --install-service      Install timestamp monitor as a systemd user service"
   echo "  -u, --uninstall-service    Uninstall timestamp monitor systemd user service"
   echo "  -s, --set-start-date DATE  Set the start date for journal entries (default: $(date +"%Y-%m-%d"))"
@@ -73,6 +74,34 @@ usage() {
   echo "      --sops-config FILE     Override default sops config location (.sops.yaml)"
   echo "      --migrate-to-encrypted Migration command to convert existing entries to encrypted format"
   echo "  -h, --help                 Display this help message and exit"
+  echo
+  echo "Encryption (SOPS) Support:"
+  echo "  This tool supports automatic encryption using Mozilla SOPS."
+  echo "  "
+  echo "  Setup Steps:"
+  echo "    1. Install SOPS: https://github.com/mozilla/sops"
+  echo "    2. Set up encryption keys (Age, PGP, KMS, etc.)"
+  echo "    3. Create .sops.yaml configuration file"
+  echo "    4. New journal entries will be automatically encrypted"
+  echo "  "
+  echo "  Common SOPS Commands:"
+  echo "    Create config:     sops --encrypt .sops.yaml"
+  echo "    Edit encrypted:    sops <encrypted-file>"
+  echo "    View encrypted:    sops --decrypt <encrypted-file>"
+  echo "    Migrate existing:  $0 --migrate-to-encrypted"
+  echo "  "
+  echo "  Troubleshooting:"
+  echo "    - Ensure SOPS is in PATH and keys are accessible"
+  echo "    - Check .sops.yaml format and key configuration"
+  echo "    - Use --verbose for detailed error information"
+  echo "    - Test encryption with: sops --encrypt /dev/stdin <<< 'test: data'"
+  echo
+  echo "Examples:"
+  echo "  $0                         # Create today's entry"
+  echo "  $0 --date 2024-01-15       # Create entry for specific date"
+  echo "  $0 -e                      # Create and open in editor"
+  echo "  $0 --migrate-to-encrypted  # Convert existing entries to encrypted"
+  echo "  $0 --verbose               # Show detailed processing information"
   echo
 }
 
@@ -115,6 +144,7 @@ FORCE=false
 INSTALL_SERVICE=false
 UNINSTALL_SERVICE=false
 QUIET_FAIL=false
+VERBOSE_MODE=false
 OVERRIDE_DATE=""
 SOPS_CONFIG_PATH=""
 MIGRATE_TO_ENCRYPTED=false
@@ -135,13 +165,36 @@ print() {
     log_init "$level" "$message"
   fi
 
-  if [[ "$QUIET_FAIL" == "false" ]]; then
+  # Enhanced output handling with verbose mode
+  local should_print=true
+
+  # In quiet mode, only show errors
+  if [[ "$QUIET_FAIL" == "true" && "$level" != "ERROR" ]]; then
+    should_print=false
+  fi
+
+  # In verbose mode, show debug messages
+  if [[ "$VERBOSE_MODE" == "true" || "$level" == "ERROR" || "$level" == "WARN" ]]; then
+    should_print=true
+  fi
+
+  # In normal mode, filter debug messages unless verbose is enabled
+  if [[ "$level" == "DEBUG" && "$VERBOSE_MODE" == "false" ]]; then
+    should_print=false
+  fi
+
+  if [[ "$should_print" == "true" ]]; then
     case "$level" in
       "ERROR")
         echo "Error: $message" >&2
         ;;
       "WARN")
         echo "Warning: $message" >&2
+        ;;
+      "DEBUG")
+        if [[ "$VERBOSE_MODE" == "true" ]]; then
+          echo "Debug: $message" >&2
+        fi
         ;;
       *)
         echo "$message"
@@ -200,7 +253,7 @@ validate_args() {
           ;;
       esac
       ;;
-    -e|--edit|-f|--force|-q|--quiet|-i|--install-service|-u|--uninstall-service|--migrate-to-encrypted|-h|--help)
+    -e|--edit|-f|--force|-q|--quiet|-v|--verbose|-i|--install-service|-u|--uninstall-service|--migrate-to-encrypted|-h|--help)
       requires_value=false
       ;;
     *)
@@ -285,6 +338,11 @@ while [[ "$#" -gt 0 ]]; do
   -q | --quiet)
     validate_args "$1" ""
     QUIET_FAIL=true
+    ;;
+  -v | --verbose)
+    validate_args "$1" ""
+    VERBOSE_MODE=true
+    JOURNAL_LOG_LEVEL="DEBUG"
     ;;
   -i | --install-service)
     validate_args "$1" ""
@@ -405,171 +463,284 @@ if [[ "$MIGRATE_TO_ENCRYPTED" = true ]]; then
     local files_already_encrypted=()
     local files_newly_encrypted=()
     local files_failed=()
+    local files_skipped=()
     local processed_count=0
     local total_count=0
-    
+
     print "Starting migration to encrypted format..." "INFO"
-    
-    # Prerequisites check
+
+    # Enhanced prerequisites check
     print "Checking prerequisites..." "INFO"
-    
-    # Check if sops executable is available
-    if ! command -v sops >/dev/null 2>&1; then
-      print "SOPS executable not found in PATH. Please install SOPS first." "ERROR"
-      exit 1
-    fi
-    
-    # Check if SOPS config exists
-    local sops_config=""
-    if [[ -n "$SOPS_CONFIG_PATH" ]]; then
-      if [[ -f "$SOPS_CONFIG_PATH" ]]; then
-        sops_config="$SOPS_CONFIG_PATH"
-        print "Using custom SOPS config: $sops_config" "INFO"
-      else
-        print "Custom SOPS config file not found: $SOPS_CONFIG_PATH" "ERROR"
+
+    # Check SOPS availability with guidance
+    if [[ "$SOPS_AVAILABLE" == "true" ]]; then
+      if ! check_sops_availability_with_guidance; then
+        print "Migration aborted: SOPS not available" "ERROR"
         exit 1
       fi
     else
-      # Auto-detect sops config
-      if [[ -f ".sops.yaml" ]]; then
-        sops_config=".sops.yaml"
-      elif [[ -f ".sops.yml" ]]; then
-        sops_config=".sops.yml"
+      print "Migration aborted: SOPS utilities not loaded" "ERROR"
+      exit 1
+    fi
+
+    # Determine and validate SOPS config
+    local sops_config=""
+    if [[ -n "$SOPS_CONFIG_PATH" ]]; then
+      sops_config=$(detect_sops_config "$SOPS_CONFIG_PATH" 2>/dev/null || echo "")
+      if [[ -n "$sops_config" ]]; then
+        print "Using custom SOPS config: $sops_config" "INFO"
       else
-        print "No .sops.yaml found. Create one first with: sops --encrypt --in-place .sops.yaml" "ERROR"
+        print "Custom SOPS config file not found or invalid: $SOPS_CONFIG_PATH" "ERROR"
+        exit 1
+      fi
+    else
+      sops_config=$(detect_sops_config 2>/dev/null || echo "")
+      if [[ -z "$sops_config" ]]; then
+        print "No .sops.yaml configuration found in current directory" "ERROR"
+        print "Create a SOPS configuration file first:" "ERROR"
+        print "  1. Generate/import encryption keys (Age, PGP, KMS, etc.)" "ERROR"
+        print "  2. Create .sops.yaml with creation rules and key configuration" "ERROR"
+        print "  3. See: https://github.com/mozilla/sops#usage" "ERROR"
         exit 1
       fi
     fi
-    
-    print "Using SOPS config: $sops_config" "INFO"
-    
-    # Verify target directory exists and is writable
+
+    # Validate SOPS configuration
+    if ! validate_sops_config "$sops_config"; then
+      print "Migration aborted: Invalid SOPS configuration" "ERROR"
+      exit 1
+    fi
+
+    # Test SOPS functionality before proceeding
+    print "Testing SOPS encryption functionality..." "INFO"
+    if ! test_sops_encryption "$sops_config"; then
+      print "Migration aborted: SOPS encryption test failed" "ERROR"
+      print "Please verify your encryption keys and configuration" "ERROR"
+      exit 1
+    fi
+    print "SOPS functionality test passed" "INFO"
+
+    # Verify target directory
     if [[ ! -d "$OUTPUT_DIR" ]]; then
       print "Target directory does not exist: $OUTPUT_DIR" "ERROR"
       exit 1
     fi
-    
+
     if [[ ! -w "$OUTPUT_DIR" ]]; then
       print "Target directory is not writable: $OUTPUT_DIR" "ERROR"
       exit 1
     fi
-    
-    print "Prerequisites check passed." "INFO"
+
+    print "Prerequisites check passed" "INFO"
     print "" "INFO"
-    
-    # Find all .md files in the directory
+
+    # Find and validate markdown files
     print "Scanning for markdown files in: $OUTPUT_DIR" "INFO"
     local md_files=()
     while IFS= read -r -d '' file; do
-      md_files+=("$file")
+      if [[ -f "$file" ]]; then
+        md_files+=("$file")
+      fi
     done < <(find "$OUTPUT_DIR" -maxdepth 1 -name "*.md" -type f -print0 2>/dev/null)
-    
+
     total_count=${#md_files[@]}
     if [[ $total_count -eq 0 ]]; then
-      print "No markdown files found in directory: $OUTPUT_DIR" "INFO"
+      print "No markdown files found in directory: $OUTPUT_DIR" "WARN"
+      print "Migration completed with no files to process" "INFO"
       exit 0
     fi
-    
-    print "Found $total_count markdown files to process." "INFO"
+
+    print "Found $total_count markdown files to process" "INFO"
+
+    # Show progress estimate
+    if [[ $total_count -gt 10 ]]; then
+      print "This may take a moment for large numbers of files..." "INFO"
+    fi
+
     print "" "INFO"
-    
-    # Process each file
+
+    # Process each file with enhanced error handling
     for file_path in "${md_files[@]}"; do
       local filename
       filename=$(basename "$file_path")
       processed_count=$((processed_count + 1))
-      
-      print "[$processed_count/$total_count] Checking file: $filename" "INFO"
-      
-      # Check if file is readable
+
+      # Show progress with percentage for large batches
+      if [[ $total_count -gt 20 ]]; then
+        local percentage=$((processed_count * 100 / total_count))
+        print "[$processed_count/$total_count] ($percentage%) Processing: $filename" "INFO"
+      else
+        print "[$processed_count/$total_count] Processing: $filename" "INFO"
+      fi
+
+      # Validate file accessibility
       if [[ ! -r "$file_path" ]]; then
         print "Skipping unreadable file: $filename" "WARN"
         files_failed+=("$filename (unreadable)")
         continue
       fi
-      
-      # Check if file is already encrypted using the existing function
-      if [[ "$SOPS_AVAILABLE" == "true" ]] && is_file_encrypted "$file_path"; then
-        print "Skipping already encrypted: $filename" "INFO"
+
+      if [[ ! -w "$file_path" ]]; then
+        print "Skipping unwritable file: $filename" "WARN"
+        files_failed+=("$filename (unwritable)")
+        continue
+      fi
+
+      # Check file size (empty files)
+      if [[ ! -s "$file_path" ]]; then
+        print "Skipping empty file: $filename" "WARN"
+        files_skipped+=("$filename (empty)")
+        continue
+      fi
+
+      # Check if file is already encrypted
+      if is_file_encrypted "$file_path"; then
+        print "Already encrypted: $filename" "DEBUG"
         files_already_encrypted+=("$filename")
         continue
       fi
-      
-      # Encrypt the file
-      print "Encrypting: $filename" "INFO"
-      if sops --encrypt --in-place "$file_path" 2>/dev/null; then
+
+      # Create backup before encryption
+      local backup_file="${file_path}.backup.$(date +%s)"
+      if ! cp "$file_path" "$backup_file" 2>/dev/null; then
+        print "Failed to create backup for: $filename" "ERROR"
+        files_failed+=("$filename (backup failed)")
+        continue
+      fi
+
+      # Attempt encryption with detailed error capture
+      print "Encrypting: $filename" "DEBUG"
+      local sops_error
+      if sops_error=$(sops --encrypt --in-place "$file_path" 2>&1); then
+        print "Successfully encrypted: $filename" "DEBUG"
         files_newly_encrypted+=("$filename")
+        # Remove backup on success
+        rm -f "$backup_file" 2>/dev/null
       else
-        local error_msg="Failed to encrypt: $filename"
-        if [[ ! -w "$file_path" ]]; then
-          error_msg="$error_msg (not writable)"
-        else
-          error_msg="$error_msg (sops encryption failed)"
+        print "Failed to encrypt: $filename" "ERROR"
+
+        # Restore from backup
+        if [[ -f "$backup_file" ]]; then
+          mv "$backup_file" "$file_path" 2>/dev/null || true
+          print "Restored from backup: $filename" "INFO"
         fi
-        print "$error_msg" "ERROR"
+
+        # Provide specific error guidance
+        get_sops_error_guidance "$sops_error"
+
         files_failed+=("$filename")
       fi
     done
-    
-    # Show summary
+
+    # Enhanced summary with detailed statistics
     print "" "INFO"
-    print "Migration complete!" "INFO"
+    print "=== Migration Summary ===" "INFO"
+    print "Total files processed: $processed_count" "INFO"
     print "Files already encrypted: ${#files_already_encrypted[@]}" "INFO"
     print "Files newly encrypted: ${#files_newly_encrypted[@]}" "INFO"
+    print "Files skipped: ${#files_skipped[@]}" "INFO"
     print "Files failed: ${#files_failed[@]}" "INFO"
-    
+
     # Show details for newly encrypted files
     if [[ ${#files_newly_encrypted[@]} -gt 0 ]]; then
       print "" "INFO"
       print "Newly encrypted files:" "INFO"
       for file in "${files_newly_encrypted[@]}"; do
-        print "- $file" "INFO"
+        print "  ✓ $file" "INFO"
       done
     fi
-    
+
+    # Show details for already encrypted files (in debug mode)
+    if [[ ${#files_already_encrypted[@]} -gt 0 && "$JOURNAL_LOG_LEVEL" == "DEBUG" ]]; then
+      print "" "INFO"
+      print "Already encrypted files:" "INFO"
+      for file in "${files_already_encrypted[@]}"; do
+        print "  - $file" "INFO"
+      done
+    fi
+
+    # Show details for skipped files
+    if [[ ${#files_skipped[@]} -gt 0 ]]; then
+      print "" "WARN"
+      print "Skipped files:" "WARN"
+      for file in "${files_skipped[@]}"; do
+        print "  ~ $file" "WARN"
+      done
+    fi
+
     # Show details for failed files
     if [[ ${#files_failed[@]} -gt 0 ]]; then
-      print "" "INFO"
-      print "Failed files:" "WARN"
+      print "" "ERROR"
+      print "Failed files:" "ERROR"
       for file in "${files_failed[@]}"; do
-        print "- $file" "WARN"
+        print "  ✗ $file" "ERROR"
       done
+      print "" "ERROR"
+      print "Migration completed with errors. Please review failed files above." "ERROR"
       exit 1
     fi
-    
+
+    # Success message
+    if [[ ${#files_newly_encrypted[@]} -gt 0 ]]; then
+      print "" "INFO"
+      print "Migration completed successfully! ${#files_newly_encrypted[@]} files newly encrypted." "INFO"
+    else
+      print "" "INFO"
+      print "Migration completed. No new files needed encryption." "INFO"
+    fi
+
     exit 0
   }
-  
+
   # Call the migration function
   migrate_to_encrypted
 fi
 
-# Detect SOPS configuration early in execution
+# Enhanced SOPS configuration detection and validation
 SOPS_CONFIG=""
 SOPS_ENCRYPTION_ENABLED=false
 if [[ "$SOPS_AVAILABLE" == "true" ]]; then
-  # Use custom SOPS config path if provided, otherwise auto-detect
-  if [[ -n "$SOPS_CONFIG_PATH" ]]; then
-    SOPS_CONFIG=$(detect_sops_config "$SOPS_CONFIG_PATH" 2>/dev/null || echo "")
+  # Enhanced sops availability check with user guidance
+  if check_sops_availability_with_guidance; then
+    print "SOPS executable available: $SOPS_VERSION" "DEBUG"
+
+    # Use custom SOPS config path if provided, otherwise auto-detect
+    if [[ -n "$SOPS_CONFIG_PATH" ]]; then
+      SOPS_CONFIG=$(detect_sops_config "$SOPS_CONFIG_PATH" 2>/dev/null || echo "")
+      if [[ -n "$SOPS_CONFIG" ]]; then
+        print "Using custom SOPS config: $SOPS_CONFIG" "INFO"
+      else
+        print "Custom SOPS config path provided but no config found: $SOPS_CONFIG_PATH" "ERROR"
+        print "Please ensure the path is correct and the file exists" "ERROR"
+        exit 1
+      fi
+    else
+      SOPS_CONFIG=$(detect_sops_config 2>/dev/null || echo "")
+    fi
+
     if [[ -n "$SOPS_CONFIG" ]]; then
-      print "Using custom SOPS config: $SOPS_CONFIG" "INFO"
+      # Validate SOPS configuration
+      if validate_sops_config "$SOPS_CONFIG"; then
+        # Test encryption functionality
+        if test_sops_encryption "$SOPS_CONFIG"; then
+          SOPS_ENCRYPTION_ENABLED=true
+          print "SOPS encryption enabled and tested successfully (config: $SOPS_CONFIG)" "DEBUG"
+        else
+          print "SOPS config found but encryption test failed - operating in unencrypted mode" "WARN"
+          print "Check your encryption keys and configuration" "WARN"
+        fi
+      else
+        print "SOPS config found but validation failed - operating in unencrypted mode" "WARN"
+        print "Please check your .sops.yaml configuration file" "WARN"
+      fi
     else
-      print "Custom SOPS config path provided but no config found: $SOPS_CONFIG_PATH" "ERROR"
-      exit 1
+      print "Operating in unencrypted mode (no .sops.yaml found)" "INFO"
+      if [[ "$QUIET_FAIL" == "false" ]]; then
+        print "To enable encryption, create a .sops.yaml file. See: https://github.com/mozilla/sops#usage" "INFO"
+      fi
     fi
   else
-    SOPS_CONFIG=$(detect_sops_config 2>/dev/null || echo "")
-  fi
-  
-  if [[ -n "$SOPS_CONFIG" ]]; then
-    if check_sops_available; then
-      SOPS_ENCRYPTION_ENABLED=true
-      print "SOPS encryption enabled (config: $SOPS_CONFIG)" "DEBUG"
-    else
-      print "SOPS config found but executable not available" "WARN"
-    fi
-  else
-    print "Operating in unencrypted mode (no .sops.yaml found)" "INFO"
+    print "SOPS executable not available - operating in unencrypted mode" "DEBUG"
   fi
 else
   print "Operating in unencrypted mode (SOPS utilities not available)" "DEBUG"
@@ -771,16 +942,56 @@ fi
 
 print "Journal entry created successfully!" "INFO"
 
-# Encrypt the file if SOPS is enabled
+# Enhanced encryption handling with atomic operations
 if [[ "$SOPS_ENCRYPTION_ENABLED" == "true" ]]; then
-  print "Creating encrypted journal entry" "INFO"
-  
-  if ! sops --encrypt --in-place "$OUTPUT_FILE" 2>/dev/null; then
-    print "Failed to encrypt journal entry with SOPS" "ERROR"
-    print "The unencrypted file remains at: $OUTPUT_FILE" "WARN"
-    # Don't exit here - user can still work with unencrypted file
-  else
+  print "Encrypting journal entry with SOPS..." "INFO"
+
+  # Create backup before encryption for atomic operation
+  local temp_backup="${OUTPUT_FILE}.tmp.backup"
+  if ! cp "$OUTPUT_FILE" "$temp_backup" 2>/dev/null; then
+    print "Warning: Could not create temporary backup for atomic encryption" "WARN"
+    print "Proceeding with in-place encryption (non-atomic)" "WARN"
+    temp_backup=""
+  fi
+
+  # Attempt encryption with detailed error handling
+  local sops_error
+  if sops_error=$(sops --encrypt --in-place "$OUTPUT_FILE" 2>&1); then
     print "Journal entry encrypted successfully" "INFO"
+    print "File saved as encrypted: $OUTPUT_FILE" "INFO"
+
+    # Clean up temporary backup on success
+    if [[ -n "$temp_backup" && -f "$temp_backup" ]]; then
+      rm -f "$temp_backup" 2>/dev/null
+    fi
+  else
+    print "Failed to encrypt journal entry with SOPS" "ERROR"
+
+    # Restore from backup if atomic operation was attempted
+    if [[ -n "$temp_backup" && -f "$temp_backup" ]]; then
+      if mv "$temp_backup" "$OUTPUT_FILE" 2>/dev/null; then
+        print "Restored unencrypted file from backup" "INFO"
+      else
+        print "Warning: Could not restore from backup - file may be in inconsistent state" "WARN"
+      fi
+    fi
+
+    # Provide specific error guidance
+    get_sops_error_guidance "$sops_error"
+
+    print "The unencrypted file remains at: $OUTPUT_FILE" "WARN"
+    print "You can manually encrypt it later with: sops --encrypt --in-place \"$OUTPUT_FILE\"" "INFO"
+
+    # Don't exit here - user can still work with unencrypted file
+  fi
+else
+  # Notify user about encryption status
+  if [[ "$QUIET_FAIL" == "false" ]]; then
+    if [[ "$SOPS_AVAILABLE" == "true" ]]; then
+      print "Journal entry created as unencrypted (no SOPS config or encryption disabled)" "INFO"
+    else
+      print "Journal entry created as unencrypted (SOPS not available)" "DEBUG"
+    fi
   fi
 fi
 
@@ -795,23 +1006,44 @@ if [[ "$OPEN_EDITOR" = true ]]; then
     exit 1
   fi
 
-  # Determine if we should use sops for editing
+  # Enhanced editor selection with encryption status awareness
   USE_SOPS_FOR_EDITING=false
+  local file_encrypted=false
+
+  # Check encryption status with user-friendly messaging
   if [[ "$SOPS_AVAILABLE" == "true" ]] && [[ -n "$SOPS_CONFIG" ]]; then
-    # Check if the file is encrypted
     if is_file_encrypted "$OUTPUT_FILE"; then
+      file_encrypted=true
       USE_SOPS_FOR_EDITING=true
-      print "Opening encrypted journal entry with sops" "INFO"
+      print "Detected encrypted journal entry" "INFO"
+      print "Opening with SOPS editor (will decrypt for editing, re-encrypt on save)" "INFO"
     else
-      print "Opening journal entry in $EDITOR..." "INFO"
+      print "Opening unencrypted journal entry in $EDITOR" "INFO"
     fi
   else
+    # SOPS not available, check if file might be encrypted anyway
+    if grep -q "sops:" "$OUTPUT_FILE" 2>/dev/null; then
+      print "Warning: File appears to be encrypted but SOPS is not available" "WARN"
+      print "The file may not display correctly in a regular editor" "WARN"
+
+      if [[ "$QUIET_FAIL" == "false" ]]; then
+        read -r -p "Do you want to continue opening with $EDITOR anyway? (y/N): " confirm
+        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+          print "Editor opening cancelled. Your journal entry is saved at: $OUTPUT_FILE" "INFO"
+          exit 0
+        fi
+      fi
+    fi
+
+    # Check if editor is available
     if ! command -v "$EDITOR" >/dev/null 2>&1; then
       print "Error: Editor '$EDITOR' not found, cannot open journal entry" "ERROR"
       print "You can still find your journal entry at: $OUTPUT_FILE" "INFO"
+      print "Set the EDITOR environment variable or use -E option to specify an editor" "INFO"
       exit 1
     fi
-    print "Opening journal entry in $EDITOR..." "INFO"
+
+    print "Opening journal entry in $EDITOR" "INFO"
   fi
 
   # Open the file with the appropriate method
@@ -827,7 +1059,7 @@ if [[ "$OPEN_EDITOR" = true ]]; then
       print "You can still find your journal entry at: $OUTPUT_FILE" "INFO"
       exit 1
     fi
-    
+
     if ! "$EDITOR" "$OUTPUT_FILE"; then
       print "Warning: Editor '$EDITOR' exited with an error" "WARN"
       print "Your journal entry was created successfully at: $OUTPUT_FILE" "INFO"
