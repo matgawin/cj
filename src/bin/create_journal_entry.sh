@@ -401,9 +401,147 @@ fi
 
 # Handle migration to encrypted format
 if [[ "$MIGRATE_TO_ENCRYPTED" = true ]]; then
-  print "Migration to encrypted format functionality will be implemented in a future update" "INFO"
-  print "This option has been parsed but not yet implemented" "WARN"
-  exit 0
+  migrate_to_encrypted() {
+    local files_already_encrypted=()
+    local files_newly_encrypted=()
+    local files_failed=()
+    local processed_count=0
+    local total_count=0
+    
+    print "Starting migration to encrypted format..." "INFO"
+    
+    # Prerequisites check
+    print "Checking prerequisites..." "INFO"
+    
+    # Check if sops executable is available
+    if ! command -v sops >/dev/null 2>&1; then
+      print "SOPS executable not found in PATH. Please install SOPS first." "ERROR"
+      exit 1
+    fi
+    
+    # Check if SOPS config exists
+    local sops_config=""
+    if [[ -n "$SOPS_CONFIG_PATH" ]]; then
+      if [[ -f "$SOPS_CONFIG_PATH" ]]; then
+        sops_config="$SOPS_CONFIG_PATH"
+        print "Using custom SOPS config: $sops_config" "INFO"
+      else
+        print "Custom SOPS config file not found: $SOPS_CONFIG_PATH" "ERROR"
+        exit 1
+      fi
+    else
+      # Auto-detect sops config
+      if [[ -f ".sops.yaml" ]]; then
+        sops_config=".sops.yaml"
+      elif [[ -f ".sops.yml" ]]; then
+        sops_config=".sops.yml"
+      else
+        print "No .sops.yaml found. Create one first with: sops --encrypt --in-place .sops.yaml" "ERROR"
+        exit 1
+      fi
+    fi
+    
+    print "Using SOPS config: $sops_config" "INFO"
+    
+    # Verify target directory exists and is writable
+    if [[ ! -d "$OUTPUT_DIR" ]]; then
+      print "Target directory does not exist: $OUTPUT_DIR" "ERROR"
+      exit 1
+    fi
+    
+    if [[ ! -w "$OUTPUT_DIR" ]]; then
+      print "Target directory is not writable: $OUTPUT_DIR" "ERROR"
+      exit 1
+    fi
+    
+    print "Prerequisites check passed." "INFO"
+    print "" "INFO"
+    
+    # Find all .md files in the directory
+    print "Scanning for markdown files in: $OUTPUT_DIR" "INFO"
+    local md_files=()
+    while IFS= read -r -d '' file; do
+      md_files+=("$file")
+    done < <(find "$OUTPUT_DIR" -maxdepth 1 -name "*.md" -type f -print0 2>/dev/null)
+    
+    total_count=${#md_files[@]}
+    if [[ $total_count -eq 0 ]]; then
+      print "No markdown files found in directory: $OUTPUT_DIR" "INFO"
+      exit 0
+    fi
+    
+    print "Found $total_count markdown files to process." "INFO"
+    print "" "INFO"
+    
+    # Process each file
+    for file_path in "${md_files[@]}"; do
+      local filename
+      filename=$(basename "$file_path")
+      processed_count=$((processed_count + 1))
+      
+      print "[$processed_count/$total_count] Checking file: $filename" "INFO"
+      
+      # Check if file is readable
+      if [[ ! -r "$file_path" ]]; then
+        print "Skipping unreadable file: $filename" "WARN"
+        files_failed+=("$filename (unreadable)")
+        continue
+      fi
+      
+      # Check if file is already encrypted using the existing function
+      if [[ "$SOPS_AVAILABLE" == "true" ]] && is_file_encrypted "$file_path"; then
+        print "Skipping already encrypted: $filename" "INFO"
+        files_already_encrypted+=("$filename")
+        continue
+      fi
+      
+      # Encrypt the file
+      print "Encrypting: $filename" "INFO"
+      if sops --encrypt --in-place "$file_path" 2>/dev/null; then
+        files_newly_encrypted+=("$filename")
+      else
+        local error_msg="Failed to encrypt: $filename"
+        if [[ ! -w "$file_path" ]]; then
+          error_msg="$error_msg (not writable)"
+        else
+          error_msg="$error_msg (sops encryption failed)"
+        fi
+        print "$error_msg" "ERROR"
+        files_failed+=("$filename")
+      fi
+    done
+    
+    # Show summary
+    print "" "INFO"
+    print "Migration complete!" "INFO"
+    print "Files already encrypted: ${#files_already_encrypted[@]}" "INFO"
+    print "Files newly encrypted: ${#files_newly_encrypted[@]}" "INFO"
+    print "Files failed: ${#files_failed[@]}" "INFO"
+    
+    # Show details for newly encrypted files
+    if [[ ${#files_newly_encrypted[@]} -gt 0 ]]; then
+      print "" "INFO"
+      print "Newly encrypted files:" "INFO"
+      for file in "${files_newly_encrypted[@]}"; do
+        print "- $file" "INFO"
+      done
+    fi
+    
+    # Show details for failed files
+    if [[ ${#files_failed[@]} -gt 0 ]]; then
+      print "" "INFO"
+      print "Failed files:" "WARN"
+      for file in "${files_failed[@]}"; do
+        print "- $file" "WARN"
+      done
+      exit 1
+    fi
+    
+    exit 0
+  }
+  
+  # Call the migration function
+  migrate_to_encrypted
 fi
 
 # Detect SOPS configuration early in execution
