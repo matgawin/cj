@@ -70,6 +70,8 @@ usage() {
   echo "  -u, --uninstall-service    Uninstall timestamp monitor systemd user service"
   echo "  -s, --set-start-date DATE  Set the start date for journal entries (default: $(date +"%Y-%m-%d"))"
   echo "      --date DATE            Override the date for this journal entry (default: today)"
+  echo "      --sops-config FILE     Override default sops config location (.sops.yaml)"
+  echo "      --migrate-to-encrypted Migration command to convert existing entries to encrypted format"
   echo "  -h, --help                 Display this help message and exit"
   echo
 }
@@ -114,6 +116,8 @@ INSTALL_SERVICE=false
 UNINSTALL_SERVICE=false
 QUIET_FAIL=false
 OVERRIDE_DATE=""
+SOPS_CONFIG_PATH=""
+MIGRATE_TO_ENCRYPTED=false
 
 if [[ "$(uname)" == "Darwin" ]]; then
   SED_IN_PLACE=(-i "")
@@ -152,7 +156,7 @@ validate_args() {
   local requires_value=true
 
   case "$arg" in
-    -t|--template|-o|--output|-E|--editor|-d|--directory|-s|--set-start-date|--date)
+    -t|--template|-o|--output|-E|--editor|-d|--directory|-s|--set-start-date|--date|--sops-config)
       if [[ -z "$value" || "$value" == -* ]]; then
         print "Option $arg requires a value" "ERROR"
         usage
@@ -184,9 +188,19 @@ validate_args() {
             exit 1
           fi
           ;;
+        --sops-config)
+          if [[ ! -f "$value" ]]; then
+            print "SOPS config file not found: $value" "ERROR"
+            exit 1
+          fi
+          if [[ ! -r "$value" ]]; then
+            print "SOPS config file is not readable: $value" "ERROR"
+            exit 1
+          fi
+          ;;
       esac
       ;;
-    -e|--edit|-f|--force|-q|--quiet|-i|--install-service|-u|--uninstall-service|-h|--help)
+    -e|--edit|-f|--force|-q|--quiet|-i|--install-service|-u|--uninstall-service|--migrate-to-encrypted|-h|--help)
       requires_value=false
       ;;
     *)
@@ -300,6 +314,20 @@ while [[ "$#" -gt 0 ]]; do
     OVERRIDE_DATE="$2"
     shift
     ;;
+  --sops-config)
+    if [[ -z "$2" || "$2" == -* ]]; then
+      print "Option $1 requires a value" "ERROR"
+      usage
+      exit 1
+    fi
+    validate_args "$1" "$2"
+    SOPS_CONFIG_PATH="$2"
+    shift
+    ;;
+  --migrate-to-encrypted)
+    validate_args "$1" ""
+    MIGRATE_TO_ENCRYPTED=true
+    ;;
   -h | --help)
     validate_args "$1" ""
     usage
@@ -371,11 +399,30 @@ if [[ "$UNINSTALL_SERVICE" = true ]]; then
   exit 0
 fi
 
+# Handle migration to encrypted format
+if [[ "$MIGRATE_TO_ENCRYPTED" = true ]]; then
+  print "Migration to encrypted format functionality will be implemented in a future update" "INFO"
+  print "This option has been parsed but not yet implemented" "WARN"
+  exit 0
+fi
+
 # Detect SOPS configuration early in execution
 SOPS_CONFIG=""
 SOPS_ENCRYPTION_ENABLED=false
 if [[ "$SOPS_AVAILABLE" == "true" ]]; then
-  SOPS_CONFIG=$(detect_sops_config 2>/dev/null || echo "")
+  # Use custom SOPS config path if provided, otherwise auto-detect
+  if [[ -n "$SOPS_CONFIG_PATH" ]]; then
+    SOPS_CONFIG=$(detect_sops_config "$SOPS_CONFIG_PATH" 2>/dev/null || echo "")
+    if [[ -n "$SOPS_CONFIG" ]]; then
+      print "Using custom SOPS config: $SOPS_CONFIG" "INFO"
+    else
+      print "Custom SOPS config path provided but no config found: $SOPS_CONFIG_PATH" "ERROR"
+      exit 1
+    fi
+  else
+    SOPS_CONFIG=$(detect_sops_config 2>/dev/null || echo "")
+  fi
+  
   if [[ -n "$SOPS_CONFIG" ]]; then
     if check_sops_available; then
       SOPS_ENCRYPTION_ENABLED=true
