@@ -305,6 +305,101 @@ This will show:
 - **Backups**: Consider storing encrypted backups of your Age key in a password manager
 - **Multiple Keys**: Use multiple Age keys for redundancy (different devices, backup keys)
 
+## Common Workflows
+
+### Setting Up Encryption for a New Journal
+
+```bash
+# 1. Navigate to your journal directory
+cd ~/Journal
+
+# 2. Create SOPS configuration (replace with your Age public key)
+cat > .sops.yaml << 'EOF'
+creation_rules:
+  - path_regex: \.md$
+    age: >-
+      age1your_actual_public_key_here
+EOF
+
+# 3. Test the setup
+cj --verbose
+
+# 4. Create your first encrypted entry
+cj -e
+```
+
+### Migrating Existing Journal to Encrypted Format
+
+```bash
+# 1. Navigate to existing journal directory
+cd ~/Journal
+
+# 2. Create SOPS configuration (see above)
+
+# 3. Run migration (creates backup first)
+cj --migrate-to-encrypted --verbose
+
+# 4. Verify migration worked
+# All .md files should now contain "sops:" metadata
+grep -l "sops:" *.md
+```
+
+### Using Multiple Devices/Keys
+
+```bash
+# Generate keys on each device
+age-keygen -o ~/.config/sops/age/keys.txt
+
+# Update .sops.yaml with all public keys
+cat > .sops.yaml << 'EOF'
+creation_rules:
+  - path_regex: \.md$
+    age: >-
+      age1device1_public_key,
+      age1device2_public_key,
+      age1backup_public_key
+EOF
+
+# Re-encrypt existing files for new keys
+find . -name "*.md" -exec sops updatekeys {} \;
+```
+
+### Daily Usage (After Setup)
+
+```bash
+# Create today's entry (automatically encrypted if .sops.yaml exists)
+cj
+
+# Create and edit today's entry
+cj -e
+
+# Create entry for specific date
+cj --date 2024-01-15
+
+# Edit existing entry (will automatically detect if encrypted)
+cj -e --date 2024-01-15
+
+# View encrypted entry content
+sops --decrypt journal.daily.2024.01.15.md
+```
+
+### Troubleshooting Common Issues
+
+```bash
+# Check if encryption is working
+cj --verbose
+
+# Test SOPS manually
+echo "test: data" | sops --encrypt /dev/stdin
+
+# View detailed migration process
+cj --migrate-to-encrypted --verbose
+
+# Check for Age key environment
+echo $SOPS_AGE_KEY_FILE
+cat $SOPS_AGE_KEY_FILE
+```
+
 ## Configuration
 
 ### Home-Manager Integration
@@ -341,9 +436,52 @@ Then create `cj.nix` and import into your `home.nix`:
     enableAutoCreation = true;
     autoCreationTime = "22:00";
     startDate = "2022-10-21";
+    
+    # SOPS/Encryption support
+    enableSopsSupport = true;  # Enable encryption support in services (default: true)
+    sopsConfig = "${config.home.homeDirectory}/Journal/.sops.yaml";  # Optional: specify sops config path
+    sopsAgeKeyFile = "${config.home.homeDirectory}/.config/sops/age/keys.txt";  # Optional: specify Age key file path
   };
 }
 ```
+
+#### Home-Manager SOPS Options
+
+- `enableSopsSupport` - Enable SOPS encryption support for journal services (default: true)
+- `sopsConfig` - Path to SOPS configuration file. If null, auto-detection is used
+- `sopsAgeKeyFile` - Path to Age private key file. If null, uses SOPS_AGE_KEY_FILE environment variable or default location
+
+## Testing
+
+The project includes comprehensive integration tests for SOPS encryption:
+
+```bash
+# Run all tests (requires sops and age to be installed)
+./scripts/run_tests.sh
+
+# Run only SOPS integration tests
+./scripts/test_sops_integration.sh
+```
+
+The test suite validates:
+- SOPS detection and configuration
+- Automatic encryption workflows
+- Migration from unencrypted to encrypted
+- Custom SOPS configuration paths
+- Error handling and recovery
+- Mixed environment support (encrypted + unencrypted files)
+- Service integration
+- Atomic operations
+
+## Exit Codes
+
+The `cj` command uses standard exit codes:
+
+- `0` - Success
+- `1` - General error (invalid arguments, missing files, etc.)
+- `2` - SOPS/encryption related errors
+- `3` - Configuration errors
+- `4` - Service management errors
 
 ## Development
 

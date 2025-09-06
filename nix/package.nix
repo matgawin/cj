@@ -39,13 +39,13 @@ pkgs.stdenv.mkDerivation rec {
     chmod +x $out/bin/journal-timestamp-monitor
 
     substituteInPlace $out/bin/cj \
-        --replace '#!/bin/bash' '#!${bash}/bin/bash'
+        --replace '#!/usr/bin/env bash' '#!${bash}/bin/bash'
 
     substituteInPlace $out/bin/journal-timestamp-monitor \
-        --replace '#!/bin/bash' '#!${bash}/bin/bash'
+        --replace '#!/usr/bin/env bash' '#!${bash}/bin/bash'
 
     substituteInPlace $out/share/journal/common.sh \
-        --replace '#!/bin/bash' '#!${bash}/bin/bash'
+        --replace '#!/usr/bin/env bash' '#!${bash}/bin/bash'
 
     substituteInPlace $out/bin/cj \
         --replace 'COMMON_LIB="''${SCRIPT_DIR}/../lib/common.sh"' \

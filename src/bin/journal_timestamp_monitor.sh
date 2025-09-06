@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
@@ -79,7 +79,7 @@ SOPS_ENCRYPTION_ENABLED=false
 if [[ -f "${SOPS_LIB}" ]]; then
   # shellcheck disable=SC1090
   source "${SOPS_LIB}" 2>/dev/null && SOPS_AVAILABLE=true
-  
+
   if [[ "$SOPS_AVAILABLE" == "true" ]]; then
     if check_sops_available; then
       # Use environment variable if set, otherwise auto-detect
@@ -96,7 +96,7 @@ if [[ -f "${SOPS_LIB}" ]]; then
           log "DEBUG" "Auto-detected SOPS config: $SOPS_CONFIG"
         fi
       fi
-      
+
       if [[ -n "$SOPS_CONFIG" ]]; then
         if validate_sops_config "$SOPS_CONFIG"; then
           SOPS_ENCRYPTION_ENABLED=true
@@ -166,7 +166,6 @@ update_timestamp() {
     fi
 
     # Create temporary file for decrypted content
-    temp_file
     temp_file=$(mktemp) || {
       log "ERROR" "Failed to create temporary file for encrypted file: $file"
       return 1
