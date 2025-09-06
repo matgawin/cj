@@ -38,6 +38,19 @@ in {
       description = "Start date for the journal entries in YYYY-MM-DD format. Used for day counting.";
       example = "2023-01-01";
     };
+
+    sopsConfig = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Path to SOPS configuration file for encrypted journal entries. If null, auto-detection will be used.";
+      example = "${config.home.homeDirectory}/Journal/.sops.yaml";
+    };
+
+    enableSopsSupport = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Enable SOPS encryption support for journal services. Requires sops to be available in PATH.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -49,7 +62,7 @@ in {
       (lib.mkIf cfg.enableTimestampMonitor {
         journal-timestamp-monitor = {
           Unit = {
-            Description = "Journal Timestamp Monitor Service";
+            Description = "Journal Timestamp Monitor Service (with encryption support)";
             After = ["graphical-session.target"];
           };
           Service = {
@@ -58,6 +71,8 @@ in {
             Restart = "on-failure";
             RestartSec = "5s";
             WorkingDirectory = cfg.journalDirectory;
+          } // lib.optionalAttrs (cfg.enableSopsSupport && cfg.sopsConfig != null) {
+            Environment = ["SOPS_CONFIG_PATH=${cfg.sopsConfig}"];
           };
           Install.WantedBy = ["default.target"];
         };
@@ -65,11 +80,13 @@ in {
 
       (lib.mkIf cfg.enableAutoCreation {
         journal-auto-create = {
-          Unit.Description = "Create Daily Journal Entry";
+          Unit.Description = "Create Daily Journal Entry (with encryption support)";
           Service = {
             Type = "oneshot";
             ExecStart = "${cfg.package}/bin/cj -d ${cfg.journalDirectory} -q";
             WorkingDirectory = cfg.journalDirectory;
+          } // lib.optionalAttrs (cfg.enableSopsSupport && cfg.sopsConfig != null) {
+            Environment = ["SOPS_CONFIG_PATH=${cfg.sopsConfig}"];
           };
         };
       })
