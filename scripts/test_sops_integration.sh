@@ -7,8 +7,6 @@
 # error conditions.
 #
 
-# set -e
-
 # Color codes for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -154,6 +152,7 @@ test_automatic_encryption() {
     local today_file
     today_file="journal.daily.$(date +%Y.%m.%d).md"
     if [[ ! -f "$today_file" ]]; then
+        echo "File was not created"
         return 1
     fi
 
@@ -223,6 +222,7 @@ This is test content for entry $i" > "$filename"
 
     # Run migration
     if ! "$CJ_SCRIPT" --migrate-to-encrypted -d "$TEST_JOURNAL_DIR" -q >/dev/null 2>&1; then
+        echo "Migration command failed"
         return 1
     fi
 
@@ -285,6 +285,7 @@ test_edit_encrypted_entries() {
     local filename="journal.daily.${test_date//-/.}.md"
 
     if ! "$CJ_SCRIPT" --date "$test_date" -q -d "$TEST_JOURNAL_DIR" >/dev/null 2>&1; then
+        echo "Failed to create initial encrypted entry"
         return 1
     fi
 
@@ -330,6 +331,7 @@ This is unencrypted content" > "$filename"
     for i in {3..4}; do
         local date_str="2024-01-0${i}"
         if ! "$CJ_SCRIPT" --date "$date_str" -q -d "$TEST_JOURNAL_DIR" >/dev/null 2>&1; then
+            echo "Failed to create new entry for $date_str"
             return 1
         fi
     done
@@ -391,7 +393,7 @@ test_atomic_operations() {
 
     local test_date="2024-01-20"  # Use different date to avoid conflicts with other tests
     local filename="journal.daily.${test_date//-/.}.md"
-    
+
     # Clean up any existing file from previous tests
     rm -f "$filename" 2>/dev/null
 
@@ -403,7 +405,7 @@ test_atomic_operations() {
     local script_output
     script_output=$("$CJ_SCRIPT" --date "$test_date" -q -d "$TEST_JOURNAL_DIR" 2>&1)
     local script_exit_code=$?
-    
+
     if [[ $script_exit_code -eq 0 ]]; then
         echo "Expected failure but command succeeded"
         echo "Script output was: $script_output"

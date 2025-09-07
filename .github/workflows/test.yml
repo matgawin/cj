@@ -1,0 +1,32 @@
+name: Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: nixos/nix:latest
+
+    steps:
+    - name: Checkout code
+      run: |
+        git config --global --add safe.directory /__w/cj/cj
+        git clone https://github.com/${{ github.repository }} .
+        git checkout ${{ github.sha }}
+
+    - name: Enable flakes
+      run: |
+        echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
+        nix --version
+
+    - name: Run tests
+      run: nix develop --command make test
+
+    - name: Run linting
+      run: nix develop --command make lint

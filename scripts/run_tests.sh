@@ -3,8 +3,6 @@
 # run_tests.sh - Test runner for journal management system
 #
 
-set -e
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 SOPS_TEST_SCRIPT="${SCRIPT_DIR}/test_sops_integration.sh"
 
