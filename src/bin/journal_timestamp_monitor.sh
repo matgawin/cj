@@ -85,6 +85,8 @@ else
   }
 fi
 
+JOURNAL_LOG_LEVEL="INFO"
+
 # Source sops utilities if available
 SOPS_LIB="${SCRIPT_DIR}/../lib/sops_utils.sh"
 if [[ "${SCRIPT_DIR}" == *".local/bin" ]]; then
@@ -96,6 +98,16 @@ if [[ "${SCRIPT_DIR}" == *".local/bin" ]]; then
     fi
   fi
 fi
+
+JOURNAL_DIR="$1"
+if [ -z "$JOURNAL_DIR" ]; then
+  error_exit "Journal directory not specified. Usage: $0 <journal_directory>" 1
+fi
+
+ensure_dir "$JOURNAL_DIR"
+validate_file "$JOURNAL_DIR" "directory" "Journal directory does not exist or is not accessible: $JOURNAL_DIR"
+
+log "INFO" "Starting journal timestamp monitor for directory: $JOURNAL_DIR"
 
 SOPS_AVAILABLE=false
 SOPS_CONFIG=""
@@ -137,18 +149,6 @@ if [[ -f "${SOPS_LIB}" ]]; then
   fi
 fi
 
-JOURNAL_LOG_LEVEL="INFO"
-
-JOURNAL_DIR="$1"
-if [ -z "$JOURNAL_DIR" ]; then
-  error_exit "Journal directory not specified. Usage: $0 <journal_directory>" 1
-fi
-
-ensure_dir "$JOURNAL_DIR"
-validate_file "$JOURNAL_DIR" "directory" "Journal directory does not exist or is not accessible: $JOURNAL_DIR"
-
-log "INFO" "Starting journal timestamp monitor for directory: $JOURNAL_DIR"
-
 #
 # update_timestamp() - Update the timestamp in a journal file's YAML frontmatter
 #
@@ -171,6 +171,8 @@ update_timestamp() {
   local file="$1"
   local current_time
   local file_is_encrypted=false
+
+  log "DEBUG" "Processing file: $file"
 
   if [[ ! -f "$file" ]]; then
     log "WARN" "File does not exist: $file"
@@ -207,60 +209,51 @@ update_timestamp() {
       return 1
     fi
 
-    # Create temporary file for decrypted content
-    temp_file=$(mktemp) || {
-      log "ERROR" "Failed to create temporary file for encrypted file: $file"
-      return 1
-    }
-
-    # Decrypt to temporary file
-    if ! sops --decrypt "$file" > "$temp_file" 2>/dev/null; then
+    # Decrypt to variable
+    local decrypted_content
+    if ! decrypted_content=$(sops --decrypt "$file" 2>/dev/null); then
       log "ERROR" "Failed to decrypt file: $file"
-      rm -f "$temp_file" 2>/dev/null
       return 1
     fi
 
     # Check if decrypted content has proper frontmatter and updated field
-    if ! grep -q "^---$" "$temp_file" || [[ $(grep -c "^---$" "$temp_file") -lt 2 ]]; then
+    if ! echo "$decrypted_content" | grep -q "^---$" || [[ $(echo "$decrypted_content" | grep -c "^---$") -lt 2 ]]; then
       log "DEBUG" "Skipping encrypted file without proper YAML frontmatter: $file"
-      rm -f "$temp_file" 2>/dev/null
       return 0
     fi
 
-    if ! grep -q "^updated:" "$temp_file"; then
+    if ! echo "$decrypted_content" | grep -q "^updated:"; then
       log "WARN" "Encrypted file does not have 'updated:' field in frontmatter: $file"
-      rm -f "$temp_file" 2>/dev/null
       return 0
     fi
 
     log "INFO" "Updating timestamp for encrypted file: $file"
 
-    # Update timestamp in decrypted content
+    # Update timestamp in decrypted content using sed
+    local updated_content
     if [[ "$(uname)" == "Darwin" ]]; then
-      if ! sed -i "" "s/^updated:.*$/updated: $current_time/" "$temp_file"; then
+        # shellcheck disable=SC2001
+      if ! updated_content=$(echo "$decrypted_content" | sed "s/^updated:.*$/updated: $current_time/"); then
         log "ERROR" "Failed to update timestamp in decrypted content: $file"
-        rm -f "$temp_file" 2>/dev/null
         return 1
       fi
     else
-      if ! sed -i "s/^updated:.*$/updated: $current_time/" "$temp_file"; then
+      # shellcheck disable=SC2001
+      if ! updated_content=$(echo "$decrypted_content" | sed "s/^updated:.*$/updated: $current_time/"); then
         log "ERROR" "Failed to update timestamp in decrypted content: $file"
-        rm -f "$temp_file" 2>/dev/null
         return 1
       fi
     fi
 
-    # Re-encrypt the updated content
-    if ! sops --encrypt --in-place "$temp_file" 2>/dev/null; then
-      log "ERROR" "Failed to re-encrypt updated content: $file"
-      rm -f "$temp_file" 2>/dev/null
+    # Write updated content to file and encrypt in place
+    if ! echo "$updated_content" > "$file"; then
+      log "ERROR" "Failed to write updated content to file: $file"
       return 1
     fi
 
-    # Atomically replace the original file
-    if ! mv "$temp_file" "$file" 2>/dev/null; then
-      log "ERROR" "Failed to replace encrypted file with updated version: $file"
-      rm -f "$temp_file" 2>/dev/null
+    # Encrypt the file in place to preserve original encryption keys
+    if ! sops --encrypt --in-place "$file" 2>/dev/null; then
+      log "ERROR" "Failed to encrypt updated file: $file"
       return 1
     fi
 
