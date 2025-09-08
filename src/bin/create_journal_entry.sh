@@ -146,6 +146,7 @@ usage() {
   echo "      --date DATE            Override the date for this journal entry (default: today)"
   echo "      --sops-config FILE     Override default sops config location (.sops.yaml)"
   echo "      --migrate-to-encrypted Migration command to convert existing entries to encrypted format"
+  echo "      --open FILE            Open an existing journal entry (automatically uses SOPS if encrypted)"
   echo "  -h, --help                 Display this help message and exit"
   echo
   echo "Encryption (SOPS) Support:"
@@ -174,6 +175,7 @@ usage() {
   echo "  $0 --date 2024-01-15       # Create entry for specific date"
   echo "  $0 -e                      # Create and open in editor"
   echo "  $0 --migrate-to-encrypted  # Convert existing entries to encrypted"
+  echo "  $0 --open journal.daily.2024.01.15.md  # Open existing entry"
   echo "  $0 --verbose               # Show detailed processing information"
   echo
 }
@@ -221,6 +223,7 @@ VERBOSE_MODE=false
 OVERRIDE_DATE=""
 SOPS_CONFIG_PATH=""
 MIGRATE_TO_ENCRYPTED=false
+OPEN_FILE=""
 
 if [[ "$(uname)" == "Darwin" ]]; then
   SED_IN_PLACE=(-i "")
@@ -318,7 +321,7 @@ validate_args() {
   local requires_value=true
 
   case "$arg" in
-    -t|--template|-o|--output|-E|--editor|-d|--directory|-s|--set-start-date|--date|--sops-config)
+    -t|--template|-o|--output|-E|--editor|-d|--directory|-s|--set-start-date|--date|--sops-config|--open)
       if [[ -z "$value" || "$value" == -* ]]; then
         print "Option $arg requires a value" "ERROR"
         usage
@@ -354,6 +357,14 @@ validate_args() {
           fi
           if [[ ! -r "$value" ]]; then
             exit_with_code "CONFIG" "SOPS config file is not readable: $value"
+          fi
+          ;;
+        --open)
+          if [[ ! -f "$value" ]]; then
+            exit_with_code "GENERAL" "File to open not found: $value"
+          fi
+          if [[ ! -r "$value" ]]; then
+            exit_with_code "GENERAL" "File to open is not readable: $value"
           fi
           ;;
       esac
@@ -506,6 +517,16 @@ while [[ "$#" -gt 0 ]]; do
   --migrate-to-encrypted)
     validate_args "$1" ""
     MIGRATE_TO_ENCRYPTED=true
+    ;;
+  --open)
+    if [[ -z "$2" || "$2" == -* ]]; then
+      print "Option $1 requires a value" "ERROR"
+      usage
+      exit 1
+    fi
+    validate_args "$1" "$2"
+    OPEN_FILE="$2"
+    shift
     ;;
   -h | --help)
     validate_args "$1" ""
@@ -686,6 +707,94 @@ if [[ "$UNINSTALL_SERVICE" = true ]]; then
   else
     print "No journal service files found. They may have already been uninstalled."
   fi
+  exit 0
+fi
+
+# Handle opening existing journal entry
+if [[ -n "$OPEN_FILE" ]]; then
+  print "Opening journal entry: $OPEN_FILE" "INFO"
+  
+  # Make the file path absolute if it's relative
+  if [[ "$OPEN_FILE" != /* ]]; then
+    OPEN_FILE="$(pwd)/$OPEN_FILE"
+  fi
+  
+  # Validate file exists and is readable
+  if [[ ! -f "$OPEN_FILE" ]]; then
+    exit_with_code "GENERAL" "File not found: $OPEN_FILE"
+  fi
+  
+  if [[ ! -r "$OPEN_FILE" ]]; then
+    exit_with_code "GENERAL" "File is not readable: $OPEN_FILE"
+  fi
+  
+  # Determine if file is encrypted and choose appropriate editor
+  USE_SOPS_FOR_EDITING=false
+  file_encrypted=false
+  
+  # Check encryption status and SOPS availability
+  if [[ "$SOPS_AVAILABLE" == "true" ]]; then
+    # Detect SOPS config if not already set
+    if [[ -z "$SOPS_CONFIG" ]]; then
+      if [[ -n "$SOPS_CONFIG_PATH" ]]; then
+        SOPS_CONFIG=$(detect_sops_config "$SOPS_CONFIG_PATH" 2>/dev/null || echo "")
+      else
+        SOPS_CONFIG=$(detect_sops_config 2>/dev/null || echo "")
+      fi
+    fi
+    
+    if [[ -n "$SOPS_CONFIG" ]] && is_file_encrypted "$OPEN_FILE"; then
+      file_encrypted=true
+      USE_SOPS_FOR_EDITING=true
+      print "Detected encrypted journal entry" "INFO"
+      print "Opening with SOPS editor (will decrypt for editing, re-encrypt on save)" "INFO"
+    else
+      print "Opening unencrypted journal entry with $EDITOR" "INFO"
+    fi
+  else
+    # SOPS not available, check if file might be encrypted anyway
+    if grep -q "sops:" "$OPEN_FILE" 2>/dev/null; then
+      print "Warning: File appears to be encrypted but SOPS is not available" "WARN"
+      print "The file may not display correctly in a regular editor" "WARN"
+      
+      if [[ "$QUIET_FAIL" == "false" ]]; then
+        read -r -p "Do you want to continue opening with $EDITOR anyway? (y/N): " confirm
+        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+          print "Editor opening cancelled" "INFO"
+          exit 0
+        fi
+      fi
+    fi
+    
+    print "Opening journal entry with $EDITOR" "INFO"
+  fi
+  
+  # Open the file with the appropriate method
+  if [[ "$USE_SOPS_FOR_EDITING" == "true" ]]; then
+    # Use SOPS to edit encrypted file
+    sops_args=()
+    if [[ -n "$SOPS_CONFIG" ]]; then
+      sops_args+=("--config" "$SOPS_CONFIG")
+    fi
+    sops_args+=("$OPEN_FILE")
+    
+    if ! sops "${sops_args[@]}"; then
+      print "Warning: SOPS editor exited with an error" "WARN"
+      exit 1
+    fi
+  else
+    # Use regular editor for unencrypted file
+    if ! command -v "$EDITOR" >/dev/null 2>&1; then
+      exit_with_code "GENERAL" "Editor '$EDITOR' not found in PATH"
+    fi
+    
+    if ! "$EDITOR" "$OPEN_FILE"; then
+      print "Warning: Editor '$EDITOR' exited with an error" "WARN"
+      exit 1
+    fi
+  fi
+  
+  print "Journal entry editing completed" "INFO"
   exit 0
 fi
 
