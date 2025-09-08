@@ -31,6 +31,9 @@ declare -A ERROR_CATEGORIES=(
 #   CATEGORY - One of: SUCCESS, GENERAL, SOPS, CONFIG, SERVICE
 #   message  - Optional error message to display
 #
+# Returns:
+#   Exits the script with the appropriate exit code based on category
+#
 exit_with_code() {
     local category="$1"
     local message="$2"
@@ -49,9 +52,16 @@ exit_with_code() {
 }
 
 #
-# error_exit() - Legacy compatibility function
+# error_exit() - Legacy compatibility function for backward compatibility
 #
-# Usage: error_exit message [exit_code]
+# Usage: error_exit <message> [exit_code]
+#
+# Parameters:
+#   message   - Error message to display
+#   exit_code - Optional numeric exit code (default: EXIT_GENERAL_ERROR)
+#
+# Returns:
+#   Exits the script by calling exit_with_code with appropriate category
 #
 error_exit() {
     local message="$1"
@@ -70,9 +80,17 @@ error_exit() {
 }
 
 #
-# validate_sops_operation() - Standardized SOPS error handling
+# validate_sops_operation() - Standardized SOPS error handling with detailed error parsing
 #
-# Usage: validate_sops_operation command_output exit_code operation_description
+# Usage: validate_sops_operation <command_output> <exit_code> <operation_description>
+#
+# Parameters:
+#   command_output        - Output from the failed SOPS command
+#   exit_code            - Exit code from the SOPS command
+#   operation_description - Description of the operation for error messages
+#
+# Returns:
+#   0 if exit_code is 0, otherwise calls exit_with_code with appropriate SOPS/CONFIG error
 #
 validate_sops_operation() {
     local output="$1"
@@ -100,7 +118,15 @@ validate_sops_operation() {
 #
 # validate_file_operation() - Standardized file operation error handling
 #
-# Usage: validate_file_operation exit_code operation_description file_path
+# Usage: validate_file_operation <exit_code> <operation_description> <file_path>
+#
+# Parameters:
+#   exit_code            - Exit code from the file operation
+#   operation_description - Description of the operation for error messages
+#   file_path            - Path to the file involved in the operation
+#
+# Returns:
+#   0 if exit_code is 0, otherwise calls exit_with_code with appropriate error category
 #
 validate_file_operation() {
     local exit_code="$1"
@@ -122,7 +148,14 @@ validate_file_operation() {
 #
 # validate_config_file() - Standardized configuration file validation
 #
-# Usage: validate_config_file file_path config_type
+# Usage: validate_config_file <file_path> [config_type]
+#
+# Parameters:
+#   file_path   - Path to the configuration file
+#   config_type - Optional description of config type (default: "configuration")
+#
+# Returns:
+#   0 if file exists and is readable, otherwise calls exit_with_code with CONFIG error
 #
 validate_config_file() {
     local file_path="$1"
@@ -138,9 +171,16 @@ validate_config_file() {
 }
 
 #
-# validate_directory() - Standardized directory validation
+# validate_directory() - Standardized directory validation with operation-specific checks
 #
-# Usage: validate_directory dir_path operation_type
+# Usage: validate_directory <dir_path> [operation_type]
+#
+# Parameters:
+#   dir_path       - Path to the directory to validate
+#   operation_type - Type of operation: "write", "read", or "access" (default: "access")
+#
+# Returns:
+#   0 if directory exists and meets operation requirements, otherwise calls exit_with_code
 #
 validate_directory() {
     local dir_path="$1"
@@ -162,7 +202,15 @@ validate_directory() {
 #
 # validate_service_operation() - Standardized service operation validation
 #
-# Usage: validate_service_operation exit_code operation service_name
+# Usage: validate_service_operation <exit_code> <operation> <service_name>
+#
+# Parameters:
+#   exit_code    - Exit code from the service operation
+#   operation    - Description of the service operation (e.g., "start", "stop", "enable")
+#   service_name - Name of the service
+#
+# Returns:
+#   0 if exit_code is 0, otherwise calls exit_with_code with SERVICE error category
 #
 validate_service_operation() {
     local exit_code="$1"
@@ -182,9 +230,17 @@ validate_service_operation() {
 }
 
 #
-# format_error_message() - Standardized error message formatting
+# format_error_message() - Standardized error message formatting with category prefixes
 #
-# Usage: format_error_message category message [details]
+# Usage: format_error_message <category> <message> [details]
+#
+# Parameters:
+#   category - Error category: "SOPS", "CONFIG", "SERVICE", or other
+#   message  - Main error message
+#   details  - Optional additional details
+#
+# Returns:
+#   Prints formatted error message to stdout
 #
 format_error_message() {
     local category="$1"
@@ -206,9 +262,15 @@ format_error_message() {
 }
 
 #
-# print_error_help() - Print contextual help for common error categories
+# print_error_help() - Print contextual troubleshooting help for error categories
 #
-# Usage: print_error_help category
+# Usage: print_error_help <category>
+#
+# Parameters:
+#   category - Error category: "SOPS", "CONFIG", "SERVICE"
+#
+# Returns:
+#   Prints category-specific troubleshooting guidance to stdout
 #
 print_error_help() {
     local category="$1"

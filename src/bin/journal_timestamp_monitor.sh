@@ -1,4 +1,28 @@
 #!/usr/bin/env bash
+#
+# journal_timestamp_monitor.sh - Automated timestamp updating service for journal entries
+#
+# This script monitors a directory for modified markdown journal files and automatically
+# updates their "updated:" timestamp in the YAML frontmatter. Supports both encrypted
+# (SOPS) and unencrypted files.
+#
+# Features:
+#   - Real-time monitoring using inotifywait (preferred) or periodic checking fallback
+#   - SOPS encryption support for secure journal entries
+#   - YAML frontmatter validation and timestamp updating
+#   - Comprehensive error handling and logging
+#   - Configurable monitoring intervals
+#
+# Functions:
+#   - update_timestamp()       Update timestamp in a journal file (encrypted or unencrypted)
+#   - check_modified_files()   Check and process files modified within a time interval
+#
+# Usage: journal_timestamp_monitor.sh <journal_directory>
+#
+# Environment Variables:
+#   JOURNAL_POLLING_INTERVAL  - Polling interval in seconds when inotifywait is not available
+#   SOPS_CONFIG_PATH         - Custom SOPS configuration file path
+#
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
@@ -125,6 +149,24 @@ validate_file "$JOURNAL_DIR" "directory" "Journal directory does not exist or is
 
 log "INFO" "Starting journal timestamp monitor for directory: $JOURNAL_DIR"
 
+#
+# update_timestamp() - Update the timestamp in a journal file's YAML frontmatter
+#
+# Usage: update_timestamp <file_path>
+#
+# Parameters:
+#   file_path - Path to the markdown file to update
+#
+# Behavior:
+#   - Validates file accessibility (readable, writable)
+#   - Skips non-markdown files
+#   - Handles both encrypted (SOPS) and unencrypted files
+#   - Updates "updated:" field in YAML frontmatter
+#   - Uses atomic operations for encrypted files (decrypt -> modify -> re-encrypt)
+#
+# Returns:
+#   0 on success, 1 on failure or if file should be skipped
+#
 update_timestamp() {
   local file="$1"
   local current_time
@@ -257,6 +299,23 @@ update_timestamp() {
 
 MONITORING_INTERVAL=60 # Default monitoring interval in seconds
 
+#
+# check_modified_files() - Check for and process recently modified markdown files
+#
+# Usage: check_modified_files <directory> [interval_minutes]
+#
+# Parameters:
+#   directory        - Directory to scan for modified files
+#   interval_minutes - Time window in minutes to check for modifications (default: 1)
+#
+# Behavior:
+#   - Uses find command to locate .md files modified within the specified interval
+#   - Calls update_timestamp() for each modified file
+#   - Requires 'find' command to be available
+#
+# Returns:
+#   0 on success, calls error_exit with code 5 if find command is not available
+#
 check_modified_files() {
   local dir="$1"
   local interval="${2:-1}"

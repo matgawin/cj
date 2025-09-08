@@ -1,6 +1,51 @@
 #!/usr/bin/env bash
+#
+# create_journal_entry.sh - Daily journal entry creation and management tool
+#
+# This script creates daily journal entries from templates with automatic timestamp
+# management, SOPS encryption support, and systemd service integration. It provides
+# a comprehensive solution for maintaining encrypted or unencrypted journal files.
+#
+# Features:
+#   - Template-based journal entry creation with variable substitution
+#   - SOPS encryption support for secure journal storage
+#   - Systemd service installation for automated timestamp monitoring
+#   - Migration tool for converting existing entries to encrypted format
+#   - Comprehensive error handling and validation
+#   - Interactive and quiet operation modes
+#
+# Functions:
+#   - log_init()              Initialize logging for fallback scenarios
+#   - usage()                 Display comprehensive help information
+#   - print()                 Enhanced logging and output with level filtering
+#   - validate_args()         Validate command-line arguments and options
+#   - setStartDate()          Set the start date for day counting
+#   - get_start_date()        Get or initialize the start date configuration
+#   - migrate_to_encrypted()  Convert existing journal entries to encrypted format
+#
+# Usage: create_journal_entry.sh [OPTIONS]
+#
+# Environment Variables:
+#   EDITOR               - Default text editor for opening entries
+#   SOPS_CONFIG_PATH    - Custom SOPS configuration file path
+#
 set -e
 
+#
+# log_init() - Initialize basic logging functionality for fallback scenarios
+#
+# Usage: log_init <level> <message>
+#
+# Parameters:
+#   level   - Log level (DEBUG, INFO, WARN, ERROR)
+#   message - Message to log
+#
+# Behavior:
+#   Only logs if QUIET_FAIL is false. Used when common.sh is not available.
+#
+# Returns:
+#   Always returns 0
+#
 log_init() {
   if [[ "$QUIET_FAIL" == "false" ]]; then
     local level="$1"
@@ -71,6 +116,17 @@ fi
 
 JOURNAL_LOG_LEVEL="INFO"
 
+#
+# usage() - Display comprehensive help information and usage examples
+#
+# Prints detailed help information including all command-line options, SOPS encryption
+# setup instructions, troubleshooting guidance, and usage examples.
+#
+# Usage: usage
+#
+# Returns:
+#   Always returns 0
+#
 usage() {
   echo "Usage: $0 [OPTIONS]"
   echo "Creates a daily journal entry from a template"
@@ -172,6 +228,24 @@ else
   SED_IN_PLACE=(-i)
 fi
 
+#
+# print() - Enhanced logging and output function with level-based filtering
+#
+# Usage: print <message> [level]
+#
+# Parameters:
+#   message - Message to display/log
+#   level   - Optional log level: INFO, ERROR, WARN, DEBUG (default: INFO)
+#
+# Behavior:
+#   - Integrates with log() function if available
+#   - Respects QUIET_FAIL and VERBOSE_MODE settings
+#   - Filters output based on log level and mode settings
+#   - Redirects ERROR/WARN to stderr, others to stdout
+#
+# Returns:
+#   Always returns 0
+#
 print() {
   local message="$1"
   local level="${2:-INFO}"
@@ -220,6 +294,24 @@ print() {
   fi
 }
 
+#
+# validate_args() - Validate command-line arguments and their values
+#
+# Usage: validate_args <argument> <value>
+#
+# Parameters:
+#   argument - Command-line argument to validate
+#   value    - Value associated with the argument
+#
+# Behavior:
+#   - Validates argument syntax and value requirements
+#   - Performs type-specific validation (dates, files, directories)
+#   - Calls exit_with_code on validation failures
+#   - Provides helpful error messages for invalid inputs
+#
+# Returns:
+#   0 on successful validation, exits on failure
+#
 validate_args() {
   local arg="$1"
   local value="$2"
@@ -279,6 +371,23 @@ validate_args() {
   return 0
 }
 
+#
+# setStartDate() - Set the start date for day counting in journal entries
+#
+# Usage: setStartDate <start_date>
+#
+# Parameters:
+#   start_date - Date in YYYY-MM-DD format to set as the start date
+#
+# Behavior:
+#   - Validates date format using system date command
+#   - Creates configuration directory if it doesn't exist
+#   - Saves start date to configuration file
+#   - Provides user feedback about the operation
+#
+# Returns:
+#   0 on success, calls exit_with_code on invalid date format
+#
 setStartDate() {
   local start_date="$1"
 
@@ -582,6 +691,24 @@ fi
 
 # Handle migration to encrypted format
 if [[ "$MIGRATE_TO_ENCRYPTED" = true ]]; then
+  #
+  # migrate_to_encrypted() - Convert existing journal entries to encrypted format
+  #
+  # Comprehensive migration function that converts unencrypted markdown journal
+  # entries to SOPS-encrypted format with extensive validation and error handling.
+  #
+  # Usage: migrate_to_encrypted
+  #
+  # Features:
+  #   - Prerequisites validation (SOPS availability, configuration)
+  #   - Batch processing with progress reporting
+  #   - Automatic backup creation before encryption
+  #   - Detailed error reporting and recovery
+  #   - Summary statistics and operation results
+  #
+  # Returns:
+  #   Exits with 0 on success or appropriate error code on failure
+  #
   migrate_to_encrypted() {
     local files_already_encrypted=()
     local files_newly_encrypted=()
@@ -814,7 +941,7 @@ if [[ "$MIGRATE_TO_ENCRYPTED" = true ]]; then
     exit 0
   }
 
-  # Call the migration function
+  # Execute the migration function
   migrate_to_encrypted
 fi
 
@@ -900,6 +1027,17 @@ else
   CURRENT_DAY=$(date +"%d")
 fi
 
+#
+# get_start_date() - Get or initialize the start date configuration
+#
+# Reads the start date from configuration file or prompts user to set it
+# for first-time setup. Uses interactive prompts unless in quiet mode.
+#
+# Usage: get_start_date
+#
+# Returns:
+#   Prints the start date to stdout, exits on configuration errors
+#
 get_start_date() {
   if [[ -f "$config_start_date" ]]; then
     cat "$config_start_date"
