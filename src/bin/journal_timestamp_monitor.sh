@@ -115,7 +115,7 @@ if [[ -f "${SOPS_LIB}" ]]; then
           log "WARN" "SOPS config path specified in environment but not found: $SOPS_CONFIG_PATH"
         fi
       else
-        SOPS_CONFIG=$(detect_sops_config 2>/dev/null || echo "")
+        SOPS_CONFIG=$(detect_sops_config "$JOURNAL_DIR" 2>/dev/null || detect_sops_config 2>/dev/null || echo "")
         if [[ -n "$SOPS_CONFIG" ]]; then
           log "DEBUG" "Auto-detected SOPS config: $SOPS_CONFIG"
         fi

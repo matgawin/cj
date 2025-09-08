@@ -558,12 +558,18 @@ if [[ "$INSTALL_SERVICE" = true ]]; then
   SYSTEMD_DIR="$HOME/.config/systemd/user"
   mkdir -p "$SYSTEMD_DIR"
 
+  # Make OUTPUT_DIR absolute for service first
+  service_working_dir="$OUTPUT_DIR"
+  if [[ "$service_working_dir" != /* ]]; then
+    service_working_dir="$(pwd)/$service_working_dir"
+  fi
+
   # Detect sops config for service environment
   service_sops_config=""
   service_environment_vars=""
 
   if [[ "$SOPS_AVAILABLE" == "true" ]]; then
-    service_sops_config=$(detect_sops_config 2>/dev/null || echo "")
+    service_sops_config=$(detect_sops_config "$service_working_dir" 2>/dev/null || detect_sops_config 2>/dev/null || echo "")
     if [[ -n "$service_sops_config" ]]; then
       # Make path absolute for service
       if [[ "$service_sops_config" != /* ]]; then
@@ -574,12 +580,6 @@ if [[ "$INSTALL_SERVICE" = true ]]; then
     else
       print "No SOPS config detected - service will operate in unencrypted mode"
     fi
-  fi
-
-  # Make OUTPUT_DIR absolute for service
-  service_working_dir="$OUTPUT_DIR"
-  if [[ "$service_working_dir" != /* ]]; then
-    service_working_dir="$(pwd)/$service_working_dir"
   fi
 
   cat > "$SYSTEMD_DIR/journal-timestamp-monitor.service" << EOF
@@ -739,7 +739,7 @@ if [[ -n "$OPEN_FILE" ]]; then
       if [[ -n "$SOPS_CONFIG_PATH" ]]; then
         SOPS_CONFIG=$(detect_sops_config "$SOPS_CONFIG_PATH" 2>/dev/null || echo "")
       else
-        SOPS_CONFIG=$(detect_sops_config 2>/dev/null || echo "")
+        SOPS_CONFIG=$(detect_sops_config "$(dirname "$OPEN_FILE")" 2>/dev/null || detect_sops_config 2>/dev/null || echo "")
       fi
     fi
     
@@ -850,9 +850,9 @@ if [[ "$MIGRATE_TO_ENCRYPTED" = true ]]; then
         exit_with_code "CONFIG" "Custom SOPS config file not found or invalid: $SOPS_CONFIG_PATH"
       fi
     else
-      sops_config=$(detect_sops_config 2>/dev/null || echo "")
+      sops_config=$(detect_sops_config "$OUTPUT_DIR" 2>/dev/null || detect_sops_config 2>/dev/null || echo "")
       if [[ -z "$sops_config" ]]; then
-        print "No .sops.yaml configuration found in current directory" "ERROR"
+        print "No .sops.yaml configuration found in target directory or current directory" "ERROR"
         print "Create a SOPS configuration file first:" "ERROR"
         print "  1. Generate/import encryption keys (Age, PGP, KMS, etc.)" "ERROR"
         print "  2. Create .sops.yaml with creation rules and key configuration" "ERROR"
@@ -1073,8 +1073,8 @@ if [[ "$SOPS_AVAILABLE" == "true" ]]; then
       SOPS_CONFIG=$(detect_sops_config "${SOPS_CONFIG_PATH}" 2>/dev/null || echo "")
       config_source="environment variable"
     else
-      # Auto-detect
-      SOPS_CONFIG=$(detect_sops_config 2>/dev/null || echo "")
+      # Auto-detect - check OUTPUT_DIR first, then current directory
+      SOPS_CONFIG=$(detect_sops_config "$OUTPUT_DIR" 2>/dev/null || detect_sops_config 2>/dev/null || echo "")
       config_source="auto-detection"
     fi
 
