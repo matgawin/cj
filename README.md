@@ -107,7 +107,7 @@ Once encryption is set up, the journal system handles encryption automatically:
 cj -e
 
 # Edit existing encrypted entry (uses sops automatically)
-cj -e -o existing-entry.md
+cj --open existing-entry.md
 
 # View encrypted entry content
 sops --decrypt journal.daily.2024.01.15.md
@@ -377,7 +377,7 @@ cj -e
 cj --date 2024-01-15
 
 # Edit existing entry (will automatically detect if encrypted)
-cj -e --date 2024-01-15
+cj --open journal.daily.2024.01.15.md
 
 # View encrypted entry content
 sops --decrypt journal.daily.2024.01.15.md
