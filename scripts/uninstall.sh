@@ -152,15 +152,17 @@ else
 fi
 
 if [ -d "$COMMON_LIB_DIR" ]; then
-  print_message "$INFO" "Removing common library directory..."
+  print_message "$INFO" "Removing library files..."
 
-  if [ -f "${COMMON_LIB_DIR}/common.sh" ]; then
-    if ! rm -f "${COMMON_LIB_DIR}/common.sh" 2>/dev/null; then
-      print_message "$WARN" "Failed to remove common library: ${COMMON_LIB_DIR}/common.sh"
-    else
-      print_message "$SUCCESS" "Removed common library"
+  for lib_file in common.sh error_handling.sh sops_utils.sh; do
+    if [ -f "${COMMON_LIB_DIR}/${lib_file}" ]; then
+      if ! rm -f "${COMMON_LIB_DIR}/${lib_file}" 2>/dev/null; then
+        print_message "$WARN" "Failed to remove library file: ${COMMON_LIB_DIR}/${lib_file}"
+      else
+        print_message "$SUCCESS" "Removed ${lib_file}"
+      fi
     fi
-  fi
+  done
 
   if [ -z "$(ls -A "$COMMON_LIB_DIR" 2>/dev/null)" ]; then
     if ! rmdir "$COMMON_LIB_DIR" 2>/dev/null; then
@@ -174,7 +176,7 @@ if [ -d "$COMMON_LIB_DIR" ]; then
 fi
 
 INCOMPLETE=false
-if [ -f "${INSTALL_DIR}/cj" ] || [ -f "${INSTALL_DIR}/journal-timestamp-monitor" ] || [ -f "$SYSTEMD_SERVICE" ] || [ -f "${COMMON_LIB_DIR}/common.sh" ]; then
+if [ -f "${INSTALL_DIR}/cj" ] || [ -f "${INSTALL_DIR}/journal-timestamp-monitor" ] || [ -f "$SYSTEMD_SERVICE" ] || [ -f "${COMMON_LIB_DIR}/common.sh" ] || [ -f "${COMMON_LIB_DIR}/error_handling.sh" ] || [ -f "${COMMON_LIB_DIR}/sops_utils.sh" ]; then
   INCOMPLETE=true
 fi
 

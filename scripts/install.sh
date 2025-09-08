@@ -104,12 +104,17 @@ mkdir -p "${COMMON_LIB_DIR}" 2>/dev/null || {
 }
 
 if [ -d "${COMMON_LIB_DIR}" ] && [ -w "${COMMON_LIB_DIR}" ]; then
-  if [ -f "${PROJECT_ROOT}/src/lib/common.sh" ]; then
-    print_message "$INFO" "Installing common library to ${COMMON_LIB_DIR}..."
-    cp "${PROJECT_ROOT}/src/lib/common.sh" "${COMMON_LIB_DIR}/" || {
-      print_message "$WARN" "Failed to install common library, but continuing with main installation"
-    }
-  fi
+  print_message "$INFO" "Installing library files to ${COMMON_LIB_DIR}..."
+  
+  for lib_file in common.sh error_handling.sh sops_utils.sh; do
+    if [ -f "${PROJECT_ROOT}/src/lib/${lib_file}" ]; then
+      cp "${PROJECT_ROOT}/src/lib/${lib_file}" "${COMMON_LIB_DIR}/" || {
+        print_message "$WARN" "Failed to install ${lib_file}, but continuing with installation"
+      }
+    else
+      print_message "$WARN" "Library file not found: ${lib_file}"
+    fi
+  done
 fi
 
 print_message "$INFO" "Installing scripts to ${INSTALL_DIR}..."
