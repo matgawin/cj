@@ -137,8 +137,6 @@ if [[ -f "${SOPS_LIB}" ]]; then
   fi
 fi
 
-JOURNAL_LOG_LEVEL="INFO"
-
 JOURNAL_DIR="$1"
 if [ -z "$JOURNAL_DIR" ]; then
   error_exit "Journal directory not specified. Usage: $0 <journal_directory>" 1
@@ -344,7 +342,7 @@ if command -v inotifywait >/dev/null 2>&1; then
       error_exit "Journal directory no longer exists: $JOURNAL_DIR" 6
     fi
 
-    if ! timeout 3600 inotifywait -q -m -e modify -e close_write --format "%w%f" "$JOURNAL_DIR" 2>/dev/null | while read -r file; do
+    if ! timeout 3600 inotifywait -q -m -e modify -e close_write -e create --format "%w%f" "$JOURNAL_DIR" 2>/dev/null | while read -r file; do
       if [[ "$file" == *.md ]]; then
         log "DEBUG" "File modified: $file"
         update_timestamp "$file"
